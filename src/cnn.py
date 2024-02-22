@@ -1,4 +1,5 @@
 import tensorflow as tf
+print(tf.__version__)
 import keras.datasets.mnist as mnist
 import keras.utils as k_utils
 import keras
@@ -91,6 +92,80 @@ def load_model(path: str = f"{MODEL_DIR}/model.keras") -> Sequential:
     model = keras.models.load_model(path)
     return model
 
+def predict_lite(interpreter, input, output, data_in):
+    interpreter.set_tensor(input, data_in)
+    interpreter.invoke()
+    out = interpreter.get_tensor(output)
+    return out
+
+def evaluate_tflite(interpreter: tf.lite.Interpreter):
+    interpreter.allocate_tensors() # Needed before execution!
+    input = interpreter.get_input_details()[0]["index"]
+    output = interpreter.get_output_details()[0]["index"]
+    for i in range(10):
+        input_image = x_test[i]
+        input_image = np.expand_dims(input_image, axis=0) # To have (1,28,28,1) tensor
+        out = predict_lite(interpreter, input, output, input_image)[0]
+        digit = np.argmax(out)
+        actual_digit = np.argmax(y_test[i])
+        print(f"Predicted Digit: {digit} - Real Digit: {actual_digit}\nConfidence: {out[digit]}")
+    # for i in range(20):
+    #     input_image = x_test[i]
+    #     input_image = np.expand_dims(input_image, axis=0) # To have (1,28,28,1) tensor
+    #     interpreter.set_tensor(input, input_image)
+    #     interpreter.invoke()
+    #     out = interpreter.tensor(output)()[0]
+
+    #     # Print the model's classification result
+    #     digit = np.argmax(out)
+    #     actual_digit = np.argmax(y_test[i])
+    #     print(f"Predicted Digit: {digit} - Real Digit: {actual_digit}\nConfidence: {out[digit]}")
+
+
+def convert_to_tflite(model: Sequential, mode: str):
+    print("Converting to TFLite...")
+    LITE_MODEL_DIR = MODEL_DIR + "/lite"
+    lite_models_dir = pathlib.Path(LITE_MODEL_DIR)
+    lite_models_dir.mkdir(exist_ok=True, parents=True)
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    match mode:
+        case "dyn":
+            # Dynamic range quantization
+            converter.optimizations = [tf.lite.Optimize.DEFAULT]
+            tflite_dyn_model = converter.convert()
+            with open(f"{LITE_MODEL_DIR}/dyn_model.tflite", "wb") as f:
+                f.write(tflite_dyn_model)
+            interpreter = tf.lite.Interpreter(model_content=tflite_dyn_model)
+            evaluate_tflite(interpreter)
+        case "float16":
+            converter.optimizations = [tf.lite.Optimize.DEFAULT]
+            converter.target_spec.supported_types = [tf.float16]
+            tflite_f16_model = converter.convert()
+            with open(f"{LITE_MODEL_DIR}/f16_model.tflite", "wb") as f:
+                f.write(tflite_f16_model)
+            interpreter = tf.lite.Interpreter(model_content=tflite_f16_model)
+            evaluate_tflite(interpreter)
+        case "int":
+            def representative_dataset():
+                mnist_train, _ = tf.keras.datasets.mnist.load_data()
+                images = tf.cast(mnist_train[0], tf.float32) / 255.0
+                mnist_ds = tf.data.Dataset.from_tensor_slices((images)).batch(1)
+                for input_value in mnist_ds.take(100):
+                    input_value = tf.expand_dims(input_value, axis=-1)
+#                    print(input_value.shape)
+                    yield [input_value]
+            converter.optimizations = [tf.lite.Optimize.DEFAULT]
+            converter.representative_dataset = representative_dataset
+            converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+            converter.inference_input_type = tf.float32  # or tf.uint8
+            converter.inference_output_type = tf.int8  # or tf.uint8
+            tflite_int_model = converter.convert()
+            with open(f"{LITE_MODEL_DIR}/int_model.tflite", "wb") as f:
+                f.write(tflite_int_model)
+            interpreter = tf.lite.Interpreter(model_content=tflite_int_model)
+            evaluate_tflite(interpreter)
+
+
 
 def argument_parser() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -113,6 +188,7 @@ def main():
         evaluate(model)
         predict(model)
     save_model(model)
+    convert_to_tflite(model, mode="int")
 
 
 if __name__ == "__main__":
