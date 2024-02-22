@@ -1,12 +1,14 @@
 import tensorflow as tf
 import keras.datasets.mnist as mnist
 import keras.utils as k_utils
+import keras
 from keras.models import Sequential
 from keras.layers import Conv2D, MaxPool2D, Dense, Flatten
 from keras.optimizers import SGD
 from keras.losses import MeanSquaredError, CategoricalCrossentropy
 import numpy as np
 import pathlib
+import argparse
 
 MODEL_DIR = "./models"
 
@@ -68,7 +70,7 @@ def predict(model: Sequential) -> Sequential:
         print(f"Real: {np.argmax(y_test[i])} - Predicted: {np.argmax(predictions[i])}")
 
 
-def save_model(model: Sequential, format: str = "all"):
+def save_model(model: Sequential, format: str = "keras"):
     models_dir = pathlib.Path(MODEL_DIR)
     models_dir.mkdir(exist_ok=True, parents=True)
     # Save in all formats
@@ -79,17 +81,37 @@ def save_model(model: Sequential, format: str = "all"):
             model.save(f"{MODEL_DIR}/model.tf", save_format="tf")
         case "keras":
             model.save(f"{MODEL_DIR}/model.keras", save_format="keras")
-        case _: # save all
+        case "all":  # save all
             model.save(f"{MODEL_DIR}/model.h5", save_format="h5")
             model.save(f"{MODEL_DIR}/model.keras", save_format="keras")
             model.save(f"{MODEL_DIR}/model.tf", save_format="tf")
 
 
+def load_model(path: str = f"{MODEL_DIR}/model.keras") -> Sequential:
+    model = keras.models.load_model(path)
+    return model
+
+
+def argument_parser() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-l", "--load", default="")
+    parser.add_argument("-t", "--train", action='store_true')
+    parser.add_argument("-e", "--eval", action="store_true")
+    args = parser.parse_args()
+    return args
+
+
 def main():
-    model = create_model()
-    model = train(model)
-    evaluate(model)
-    predict(model)
+    args = argument_parser()
+    if args.load:
+        model = load_model(args.load)
+    else:
+        model = create_model()
+    if args.train:
+        model = train(model)
+    if args.eval:
+        evaluate(model)
+        predict(model)
     save_model(model)
 
 
