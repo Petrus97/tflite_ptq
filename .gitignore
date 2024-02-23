@@ -3,3 +3,4 @@ mnist_model.tflite
 models/*
 .mypy_cache
 .vscode
+__pycache__
