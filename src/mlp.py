@@ -14,20 +14,15 @@ from keras.losses import MeanSquaredError, CategoricalCrossentropy
 from dataset import *
 from tflite_utils import *
 
-NET_TYPE="cnn"
+NET_TYPE="mlp"
 
-# Make the images from shape (28,28) to (28,28,1)
-x_train = tf.expand_dims(x_train, axis=-1)  # -1 adds a dimension in the last position
-x_test = tf.expand_dims(x_test, axis=-1)
-assert x_train[0].shape == (28, 28, 1)
 
 def create_model() -> Sequential:
     model = Sequential(
         [
-            Conv2D(filters=8, kernel_size=3, input_shape=(28, 28, 1), use_bias=False),
-            MaxPool2D(pool_size=2),
-            Flatten(),
-            Dense(10, activation="softmax"),
+            Flatten(input_shape=(28, 28)),
+            # Dense(30, activation=tf.nn.relu),
+            Dense(10, activation=tf.nn.softmax)
         ]
     )
     print(model.summary())
@@ -36,7 +31,7 @@ def create_model() -> Sequential:
 
 def train(model: Sequential) -> Sequential:
     print("Training...")
-    batch_size = 128
+    batch_size = 10
     epochs = 3
     model.compile(
         optimizer=SGD(learning_rate=0.005),
@@ -82,12 +77,13 @@ def save_model(model: Sequential, format: str = "keras"):
 
 
 def load_model(path: str = f"{MODEL_DIR}/{NET_TYPE}_model.keras") -> Sequential:
+    print("loading", path)
     model = keras.models.load_model(path)
     return model
 
 def argument_parser() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="CLI utility that enables training and evaluation. The model is always saved.")
-    parser.add_argument("-l", "--load", default=f"{MODEL_DIR}/model.keras", help="Load a saved model")
+    parser.add_argument("-l", "--load", help="Load a saved model")
     parser.add_argument("-t", "--train", action="store_true", help="Train the model (creates one or use the loaded one)")
     parser.add_argument("-e", "--eval", action="store_true", help="Evaluate the model and show the first 10 predictions.")
     parser.add_argument("--lite", default="int", help="Convert to TFLite and evaluate it. Available modes:[dyn,float16,int]") # FIXME missing argument doesn't get the default one
@@ -97,6 +93,7 @@ def argument_parser() -> argparse.Namespace:
 
 def main():
     args = argument_parser()
+    print(args)
     if args.load:
         model = load_model(args.load)
     else:
