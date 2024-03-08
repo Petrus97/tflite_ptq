@@ -1,15 +1,13 @@
 import numpy as np
-from tensorflow._api.v2.nn import relu
+import tensorflow as tf
 from scipy.special import softmax
 import keras.datasets.mnist as mnist
+from prettytable import PrettyTable
+table = PrettyTable()
+table.field_names = ["idx", "My", "TFLite", "MyPred", "TfPred", "Correct"]
 mnist_train, mnist_test = mnist.load_data()
 (x_train, y_train) = mnist_train
 (x_test, y_test) = mnist_test
-
-TEST_NUM = 10
-
-# print(y_test[TEST_NUM])
-# print(x_test[TEST_NUM])
 
 # Scaling factors
 S_input = 1 / 255
@@ -26,7 +24,6 @@ Z_output = -13
 
 input = np.load("serving_default_flatten_input:0.npy")
 print(input.shape, input.dtype)
-# print(input)
 
 def quantize(array: np.ndarray):
     ''' Quantization formulas
@@ -53,41 +50,6 @@ def quantize(array: np.ndarray):
 
 
 q_input = quantize(input)
-# print(q_input)
-
-
-
-
-# with open("data.txt", "w") as f:
-#     for i in range(28):
-#         for j in range(28):
-#             f.write(str(input[0][i][i]))
-#             f.write(", ")
-#         f.write("\n")
-# n,row,col= input.shape
-
-# strstr = ""
-# for i in range(row):
-#     for j in range(col):
-#         strstr += str(input[0][i][j]) + " "
-#     strstr += '\n'
-# print(strstr)
-# print(input.shape)
-# quantize = np.load("tfl.quantize.npy")
-# print(quantize)
-
-# print(quantize)
-# reshape = np.reshape(quantize, [784, 1]).astype(np.int8)
-# print(reshape)
-
-# reshape = np.reshape(x_test[TEST_NUM], [784, 1])
-# def to_int8(array: np.ndarray):
-#     new = np.zeros(array.shape)
-#     for i in range(len(array)):
-#         new[i] = array[i][0] - 128
-#     print("NEW", new)
-# to_int8(reshape)
-# print(reshape)
 
 weights_out = np.load("sequential_dense_MatMul.npy").astype(np.int8)
 #print("WEIGHTS", weights_out)
@@ -115,103 +77,65 @@ acc = np.rint(acc)
 print(acc)
 print(acc.astype(np.int8))
 
-
-def my_dot(A: np.ndarray, B: np.ndarray, bias: np.ndarray):
-    A_rows, A_cols = A.shape
-    B_rows, B_cols = B.shape
-    C_arr = np.zeros(shape=[A_rows, B_cols])
-    C_rows, C_cols = C_arr.shape
-    A_scale = 0.003921568859368563
-    B_scale = 0.00432676263153553
-    C_scale = 0.08895974606275558
-    effective_scale = (A_scale * B_scale) / C_scale
-    q_min = -128
-    q_max = 127
-    unscaled = np.zeros(shape=C_arr.shape)
-    for i in range(C_rows):
-        for j in range(C_cols):
-            acc = 0
-            for k in range(A_cols):
-                acc += int(A[i, k]) * int(B[k, j])
-            
-            # acc = int((acc + bias[i,j])*effective_scale)
-            acc = np.int32(acc)
-            acc = np.int32(acc + bias[i,j])
-            unscaled[i, j] = acc
-            acc = int(acc * effective_scale)
-            acc += 13
-            acc = max(acc, q_min)
-            acc = min(acc, q_max)
-            C_arr[i, j] = np.int8(acc)
-            # C_arr[i, j] = acc
-    # print("Unscaled", unscaled)
-    return C_arr
-
-def apply_scaling(A: np.ndarray, bias: np.ndarray):
-    A_scale = 0.003921568859368563
-    B_scale = 0.00432676263153553
-    C_scale = 0.08895974606275558
-    effective_scale = (A_scale * B_scale) / C_scale
-    q_min = -128
-    q_max = 127
-    A_rows, A_cols = A.shape
-    for i in range(A_rows):
-        for j in range(A_cols):
-            A[i,j] = np.int32((A[i,j] + bias[i,j]) * effective_scale)
-            A[i,j] -= -13
-            A[i,j] = max(A[i, j], q_min)
-            A[i,j] = min(A[i, j], q_max)
-    return A
-
-# qwqx = np.dot(weights_out, reshape)
-# print("QWQX", qwqx)
-# scaled = apply_scaling(qwqx)
-# print("SCALED", scaled)
-# my_result = my_dot(weights_out, reshape, bias_out)
-# print("MY", my_result.astype(np.int8))
-# result_int32 = qwqx + bias_out
-# # print((result_int32 * (0.000016967/0.088959746)) + 13)
-# print("DOT", result_int32)
-# result_int8 = ((result_int32 * (0.000016967/0.088959746)) - 13 ).astype(np.int8)
-# print(result_int8)
-# smax = softmax(my_result)
-# print(smax)
-# print(np.argmax(smax))
-# aaaa(out_hidden)
+def do_dot(q_flat: np.ndarray) -> np.ndarray:
+    dot_prod = np.dot(weights_out.astype(np.int32), q_flat.astype(np.int32))
+    acc = dot_prod + q_bias
+    acc = (((S_input*S_weight)/S_output) * acc).astype(np.float32)
+    acc += Z_output
+    acc = np.maximum(acc, -128)
+    acc = np.minimum(acc, 127)
+    acc = np.rint(acc) # round to the nearest integer
+    acc = acc.astype(np.int8)
+    return acc
 
 def evaluate_test_set(q_weights: np.ndarray, q_bias: np.ndarray):
     correct = 0
     for image, label in zip(x_test, y_test):
-        image = image / 255.0
+        # image = image / 255.0
         image = np.expand_dims(image, axis=0) # from (28,28) to (1,28,28)
         q_image = quantize(image)
         q_flat = q_image.flatten()
-        dot_prod = np.dot(q_weights.astype(np.int32), q_flat.astype(np.int32))
-        acc = dot_prod + q_bias
-        acc = ((S_input*S_weight)/S_output) * acc
-        acc += Z_output
-        acc = np.rint(acc)
-        acc = acc.astype(np.int8)
+        acc = do_dot(q_flat=q_flat)
         predicted = np.argmax(acc)
         if label == predicted:
             correct += 1
     print("Lite accuracy:", (correct/10000)*100, "%")
 
-# evaluate_test_set(weights_out, q_bias)
+evaluate_test_set(weights_out, q_bias)
 
 def check_wrong(q_weights: np.ndarray, q_bias: np.ndarray):
-    image = x_test[9986]
-    label = y_test[9986]
+    image = x_test[8837]
+    label = y_test[8837]
     image = np.expand_dims(image, axis=0) # from (28,28) to (1,28,28)
     q_image = quantize(image)
     q_flat = q_image.flatten()
-    dot_prod = np.dot(q_weights.astype(np.int32), q_flat.astype(np.int32))
-    acc = dot_prod + q_bias
-    acc = ((S_input*S_weight)/S_output) * acc
-    acc += Z_output
-    acc = np.rint(acc)
-    acc = acc.astype(np.int8)
+    acc = do_dot(q_flat=q_flat)
     predicted = np.argmax(acc)
     print(acc, predicted, label)
 
 check_wrong(weights_out, q_bias)
+
+def my_invoke(image: np.ndarray) -> np.ndarray:
+    q_image = quantize(image)
+    q_flat = q_image.flatten()
+    acc = do_dot(q_flat=q_flat)
+    return acc
+
+
+def compare_results():
+    interpreter = tf.lite.Interpreter("./models/lite/int_model.tflite")
+    interpreter.allocate_tensors()
+    idx = 0
+    for image, label in zip(x_test, y_test):
+        image = np.expand_dims(image, axis=0)
+        interpreter.set_tensor(interpreter.get_input_details()[0]["index"], image)
+        interpreter.invoke()
+        ret = my_invoke(image)
+        out = interpreter.get_tensor(6)[0]
+        if(np.array_equal(ret, out) == False):
+            table.add_row([idx, ret, out, np.argmax(ret), np.argmax(out), label])
+        idx += 1
+
+    print(table)
+
+# compare_results()
