@@ -32,8 +32,8 @@ def predict_lite(interpreter: tf.lite.Interpreter, data_in) -> np.ndarray:
 def evaluate_tflite(interpreter: tf.lite.Interpreter):
     interpreter.allocate_tensors()  # Needed before execution!
     for i in range(20):
-        # input_image = mnist_test[0][i]
-        input_image = x_test[i]
+        input_image = mnist_test[0][i]
+        # input_image = x_test[i]
         logging.warn(input_image.shape)
         input_image = np.expand_dims(input_image, axis=0)  # To have (1,28,28,1) tensor
         out = predict_lite(interpreter, input_image)
@@ -48,9 +48,10 @@ def evaluate_tflite(interpreter: tf.lite.Interpreter):
         #     print("Confidence vector:", out[0])
     print(table)
     correct = 0
+    incorrect_idxs = list()
     for i in range(10000):
-        # input_image = mnist_test[0][i]
-        input_image = x_test[i]
+        input_image = mnist_test[0][i]
+        # input_image = x_test[i]
         input_image = np.expand_dims(input_image, axis=0)  # To have (1,28,28,1) tensor
         out = predict_lite(interpreter, input_image)
         digit = np.argmax(out[0])
@@ -58,11 +59,14 @@ def evaluate_tflite(interpreter: tf.lite.Interpreter):
         confidence = out[0][digit]
         if digit == actual_digit:
             correct += 1
+        else:
+            incorrect_idxs.append(i)
         # table.add_row([digit, actual_digit, confidence, "✅" if digit == actual_digit else "❌"])
     print("Lite accuracy:", (correct/10000)*100, "%")
+    print(incorrect_idxs)
         # check the output tensor for the first image
-    # input_image = mnist_test[0][10]
-    input_image = x_test[10]
+    input_image = mnist_test[0][9986]
+    # input_image = x_test[10]
     # print(input_image)
     input_image = np.expand_dims(input_image, axis=0)
     # input_image.tofile("same_img.data")
@@ -83,7 +87,7 @@ def evaluate_tflite(interpreter: tf.lite.Interpreter):
             print("Tensor data is null")
     out = interpreter.get_tensor(interpreter.get_output_details()[0]["index"])
     print(out)
-    print(np.argmax(out))
+    print(np.argmax(out), np.argmax(y_test[9986]))
 
 
 
@@ -117,13 +121,14 @@ def convert_to_tflite(model: Sequential, mode: str):
             # Full integer quantization
             def representative_dataset():
                 images = x_train # tf.cast(mnist_train[0], tf.float32) / 255.0
+                # images = mnist_train[0]
                 mnist_ds = tf.data.Dataset.from_tensor_slices((images)).batch(1)
                 for input_value in mnist_ds.take(100):
                     yield [input_value]
 
             converter.representative_dataset = representative_dataset
             converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-            converter.inference_input_type = tf.float32  # or tf.uint8
+            converter.inference_input_type = tf.uint8  # or tf.uint8
             converter.inference_output_type = tf.int8  # or tf.uint8
             tflite_int_model = converter.convert()
             with open(f"{LITE_MODEL_DIR}/int_model.tflite", "wb") as f:

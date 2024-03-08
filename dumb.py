@@ -25,17 +25,32 @@ Z_output = -13
 
 
 input = np.load("serving_default_flatten_input:0.npy")
-print(input.shape)
+print(input.shape, input.dtype)
 # print(input)
 
 def quantize(array: np.ndarray):
-    # r = S(q - Z)
-    # q = r/S + Z
+    ''' Quantization formulas
+        r = S(q - Z)
+        q = r/S + Z
+    '''
     quantized = np.zeros(array.shape, dtype=np.int8)
-    for i in range(array.shape[1]):
-        for j in range(array.shape[2]):
-            quantized[0][i][j] = (array[0][i][j] / S_input) + Z_input
+    match array.dtype:
+        case np.uint8:
+            for i in range(array.shape[1]):
+                for j in range(array.shape[2]):
+                    quantized[0][i][j] = array[0][i][j] + Z_input
+        case np.float32:
+            for i in range(array.shape[1]):
+                for j in range(array.shape[2]):
+                    quantized[0][i][j] = (array[0][i][j] / S_input) + Z_input
+        case np.float64:
+            for i in range(array.shape[1]):
+                for j in range(array.shape[2]):
+                    quantized[0][i][j] = (array[0][i][j] / S_input) + Z_input
+        case _:
+            print("another array dtype:", array.dtype)
     return quantized
+
 
 q_input = quantize(input)
 # print(q_input)
@@ -96,6 +111,7 @@ print(dotdot, dotdot.shape, dotdot.dtype)
 acc = dotdot + q_bias
 acc = ((S_input*S_weight)/S_output) * acc
 acc += Z_output
+acc = np.rint(acc)
 print(acc)
 print(acc.astype(np.int8))
 
@@ -162,3 +178,40 @@ def apply_scaling(A: np.ndarray, bias: np.ndarray):
 # print(smax)
 # print(np.argmax(smax))
 # aaaa(out_hidden)
+
+def evaluate_test_set(q_weights: np.ndarray, q_bias: np.ndarray):
+    correct = 0
+    for image, label in zip(x_test, y_test):
+        image = image / 255.0
+        image = np.expand_dims(image, axis=0) # from (28,28) to (1,28,28)
+        q_image = quantize(image)
+        q_flat = q_image.flatten()
+        dot_prod = np.dot(q_weights.astype(np.int32), q_flat.astype(np.int32))
+        acc = dot_prod + q_bias
+        acc = ((S_input*S_weight)/S_output) * acc
+        acc += Z_output
+        acc = np.rint(acc)
+        acc = acc.astype(np.int8)
+        predicted = np.argmax(acc)
+        if label == predicted:
+            correct += 1
+    print("Lite accuracy:", (correct/10000)*100, "%")
+
+# evaluate_test_set(weights_out, q_bias)
+
+def check_wrong(q_weights: np.ndarray, q_bias: np.ndarray):
+    image = x_test[9986]
+    label = y_test[9986]
+    image = np.expand_dims(image, axis=0) # from (28,28) to (1,28,28)
+    q_image = quantize(image)
+    q_flat = q_image.flatten()
+    dot_prod = np.dot(q_weights.astype(np.int32), q_flat.astype(np.int32))
+    acc = dot_prod + q_bias
+    acc = ((S_input*S_weight)/S_output) * acc
+    acc += Z_output
+    acc = np.rint(acc)
+    acc = acc.astype(np.int8)
+    predicted = np.argmax(acc)
+    print(acc, predicted, label)
+
+check_wrong(weights_out, q_bias)
