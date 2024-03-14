@@ -21,7 +21,7 @@ def create_model() -> Sequential:
     model = Sequential(
         [
             Flatten(input_shape=(28, 28)),
-            # Dense(30, activation=tf.nn.relu),
+            Dense(30, activation=tf.nn.relu),
             Dense(10, activation=tf.nn.softmax)
         ]
     )
@@ -31,10 +31,10 @@ def create_model() -> Sequential:
 
 def train(model: Sequential) -> Sequential:
     print("Training...")
-    batch_size = 10
-    epochs = 3
+    batch_size = 100
+    epochs = 30
     model.compile(
-        optimizer=SGD(learning_rate=0.005),
+        optimizer=SGD(learning_rate=0.05),
         loss=CategoricalCrossentropy(),
         metrics=["accuracy"],
     )

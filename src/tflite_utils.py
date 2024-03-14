@@ -34,7 +34,7 @@ def evaluate_tflite(interpreter: tf.lite.Interpreter):
     for i in range(20):
         input_image = mnist_test[0][i]
         # input_image = x_test[i]
-        logging.warn(input_image.shape)
+        logging.debug(input_image.shape)
         input_image = np.expand_dims(input_image, axis=0)  # To have (1,28,28,1) tensor
         out = predict_lite(interpreter, input_image)
         digit = np.argmax(out[0])
@@ -65,7 +65,7 @@ def evaluate_tflite(interpreter: tf.lite.Interpreter):
     print("Lite accuracy:", (correct/10000)*100, "%")
     print(incorrect_idxs)
         # check the output tensor for the first image
-    input_image = mnist_test[0][9986]
+    input_image = mnist_test[0][8]
     # input_image = x_test[10]
     # print(input_image)
     input_image = np.expand_dims(input_image, axis=0)
@@ -87,7 +87,7 @@ def evaluate_tflite(interpreter: tf.lite.Interpreter):
             print("Tensor data is null")
     out = interpreter.get_tensor(interpreter.get_output_details()[0]["index"])
     print(out)
-    print(np.argmax(out), np.argmax(y_test[9986]))
+    print(np.argmax(out), np.argmax(y_test[8]))
 
 
 
