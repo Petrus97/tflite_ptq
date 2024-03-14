@@ -55,7 +55,7 @@ weights_out = np.load("sequential_dense_MatMul.npy").astype(np.int8)
 #print("WEIGHTS", weights_out)
 bias_out = np.load("sequential_dense_BiasAdd_ReadVariableOp.npy").astype(np.int32)
 
-# Precumpute part
+# Precompute part
 # qb − ZX qW
 q_bias = bias_out - (weights_out @ (np.ones(shape=(784,), dtype=np.int32) * Z_input))
 print(q_bias, q_bias.shape, q_bias.dtype)
