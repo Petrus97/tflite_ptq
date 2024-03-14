@@ -4,3 +4,6 @@ models/*
 .mypy_cache
 .vscode
 __pycache__
+*.npy
+*.json
+tflite_visualize.py
