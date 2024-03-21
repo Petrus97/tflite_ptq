@@ -47,16 +47,27 @@ def train(model: Sequential) -> Sequential:
 
 
 def evaluate(model: Sequential) -> Sequential:
-    print("Evaluating...")
+    logging.info("Evaluating...")
     score = model.evaluate(x=x_test, y=y_test)
-    print(score)
+    logging.warn(score)
 
 
 def predict(model: Sequential) -> Sequential:
-    print("Showing the first 10 predictions")
+    logging.info("Showing the first 10 predictions")
+    from prettytable import PrettyTable
+    table = PrettyTable()
+    table.field_names = ["Predicted", "Original", "Confidence", "Match"]
     predictions = model.predict(x=x_test)
     for i in range(10):
-        print(f"Real: {np.argmax(y_test[i])} - Predicted: {np.argmax(predictions[i])}")
+        table.add_row(
+            [
+                np.argmax(predictions[i]),
+                np.argmax(y_test[i]),
+                np.max(predictions[i]),
+                "✅" if np.argmax(predictions[i]) == np.argmax(y_test[i]) else "❌",
+            ]
+        )
+    print(table)
 
 
 def save_model(model: Sequential, format: str = "keras", model_name: str = ""):
@@ -86,7 +97,7 @@ def argument_parser() -> argparse.Namespace:
     parser.add_argument("-l", "--load", help="Load a saved model")
     parser.add_argument("-t", "--train", action="store_true", help="Train the model (creates one or use the loaded one)")
     parser.add_argument("-e", "--eval", action="store_true", help="Evaluate the model and show the first 10 predictions.")
-    parser.add_argument("--lite", default="int", help="Convert to TFLite and evaluate it. Available modes:[dyn,float16,int]") # FIXME missing argument doesn't get the default one
+    parser.add_argument("--lite", help="Convert to TFLite and evaluate it. Available modes:[dyn,float16,int]")
     args = parser.parse_args()
     return args
 
@@ -104,7 +115,10 @@ def main():
         evaluate(model)
         predict(model)
     if args.lite:
-        convert_to_tflite(model, args.lite, model_name="")
+        tf_utils = TFLiteUtils(model, args.lite, model_name=NET_TYPE)
+        tf_utils.set_dataset(x_train, y_train, x_test, y_test)
+        tf_utils.convert_to_tflite()
+        # convert_to_tflite(model, args.lite, model_name="")
     save_model(model, model_name="")
 
 

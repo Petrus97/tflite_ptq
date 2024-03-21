@@ -13,5 +13,4 @@ FIELD_STYLES = dict(
 DATE_FORMAT = '%H:%M:%S'
 LOG_FORMAT = '%(asctime)s %(hostname)s %(filename)s:%(lineno)d[%(process)d] %(levelname)s %(message)s'
 
-
 coloredlogs.install(fmt=LOG_FORMAT, datefmt=DATE_FORMAT, field_styles=FIELD_STYLES)  # install a handler on the root logger
