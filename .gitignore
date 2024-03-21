@@ -7,3 +7,8 @@ __pycache__
 *.npy
 *.json
 tflite_visualize.py
+*.dat
+*.c
+*.h
+*.s
+*.o

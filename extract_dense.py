@@ -64,10 +64,10 @@ def get_tensor(model: tflite.Model, tensor: tflite.Tensor) -> np.ndarray:
 
 
 
-def test_import():
+def import_model(model_name: str = "int_model.tflite"):
     cur_dir = os.path.dirname(os.path.abspath(__file__))
     tflm_dir = os.path.abspath(cur_dir + '/models/lite/')
-    tflm_name = 'int_model.tflite'
+    tflm_name = model_name
     path = os.path.join(tflm_dir, tflm_name)
     with open(path, 'rb') as f:
         buf = f.read()
@@ -149,4 +149,5 @@ def test_import():
 
 
 if __name__ == '__main__':
-    test_import()
+    import_model(model_name="int_model_tmp.tflite")
+    # import_model()

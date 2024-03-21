@@ -10,6 +10,22 @@ mnist_train, mnist_test = mnist.load_data()
 (x_test, y_test) = mnist_test
 
 
+def export_array(array: np.ndarray, name: str):
+    print("Export shape: ", array.shape)
+    with open(f"{name}.dat", "w") as f:
+        if(len(array.shape) == 1): # Flat array
+            array.tofile(f, sep=",")
+        elif (len(array.shape) == 2): # Matrix array
+            rows, cols = array.shape
+            for i in range(rows):
+                f.write("{")
+                for j in range(cols):
+                    f.write(f"{array[i][j]}, ")
+                f.write("},\n")
+        else:
+            print(f"Array not exported, shape: {array.shape}")
+
+
 def to_np_dtype(type_str: str):
     match type_str:
         case "int8":
@@ -52,7 +68,7 @@ def quantize_multiplier(scale: float):
 
 def multiply_by_quantize_mul(x, scale):
     q_mantissa, exponent = quantize_multiplier(scale)
-    # print(q_mantissa, exponent)
+    print(q_mantissa, exponent)
     reduced_mantissa = (
         ((q_mantissa + (1 << 15)) >> 16) if q_mantissa < 0x7FFF0000 else 0x7FFF
     )
@@ -61,6 +77,39 @@ def multiply_by_quantize_mul(x, scale):
     x = x + (1 << (total_shifts - 1))
     result = np.right_shift(x, total_shifts)
     return result
+
+idx = 0
+
+def dot_generate(w: np.ndarray, image: np.ndarray):
+    global idx
+    with open(f"operations_{idx}.c", "w") as f:
+        f.write("#include <stdint.h>\n\n")
+        f.write(f"void dot(int32_t out[{w.shape[0]}], int8_t image[{w.shape[1]}])\n")
+        f.write("{\n")
+        result = np.zeros(shape=w.shape[0], dtype=np.int32)
+        for i in range(w.shape[0]):
+            f.write(f"out[{i}] = ")
+            for j in range(w.shape[1]):
+                result[i] += w[i, j] * image[j]
+                if(w[i, j] == 0):
+                    continue
+                elif (w[i,j] == 1):
+                    # f.write(f"\tout[{i}] += image[{j}];\n")
+                    f.write(f"image[{j}]")
+                elif(w[i,j] < 0):
+                    # f.write(f"\tout[{i}] += multiply_n{abs(w[i,j])}(image[{j}]);\n")
+                    f.write(f"multiply_n{abs(w[i,j])}(image[{j}])")
+                else:
+                    # f.write(f"\tout[{i}] += multiply_{w[i,j]}(image[{j}]);\n")
+                    f.write(f"multiply_{abs(w[i,j])}(image[{j}])")
+                if(j + 1 != w.shape[1]):
+                    f.write(" + ")
+            f.write(";\n")
+
+        f.write("}\n")
+        idx += 1
+        return result
+
 
 
 def do_dot(
@@ -72,17 +121,20 @@ def do_dot(
     S_output,
     Z_output,
 ) -> np.ndarray:
-    dot_prod = np.dot(q_weights.astype(np.int32), q_flat.astype(np.int32))
+    dot_prod = dot_generate(q_weights.astype(np.int32), q_flat.astype(np.int32))
+    #dot_prod = np.dot(q_weights.astype(np.int32), q_flat.astype(np.int32))
+    print("DOT:", dot_prod)
     # print("####", dot_prod.shape, "-", q_bias.shape)
     acc = dot_prod + q_bias.flatten()
     scale = (S_input * S_weights) / S_output
     # print("Scale: ", scale)
     # acc = (scale * acc).astype(np.float32)
     acc = multiply_by_quantize_mul(acc.astype(np.int64), scale)
+    print("after quant", acc)
     acc += Z_output
     acc = np.maximum(acc, -128)
     acc = np.minimum(acc, 127)
-    acc = np.rint(acc)  # round to the nearest integer
+    # acc = np.rint(acc)  # round to the nearest integer
     acc = acc.astype(np.int8)
     return acc
 
@@ -92,13 +144,15 @@ extr_json = open("extracted.json", "r").read()
 extracted = json.loads(extr_json)
 
 # Adjust the data
-for layer in extracted["layers"]:
+for idx, layer in enumerate(extracted["layers"]):
     layer["weights"]["data"] = np.asarray(
         layer["weights"]["data"], dtype=to_np_dtype(layer["weights"]["dtype"])
     )
+    export_array(layer["weights"]["data"], f"weights_{idx}")
     layer["bias"]["data"] = np.asarray(
         layer["bias"]["data"], dtype=to_np_dtype(layer["bias"]["dtype"])
     )
+    export_array(layer["bias"]["data"].flatten(), f"bias_{idx}")
 
 
 layers = extracted["layers"]
@@ -116,6 +170,7 @@ def invoke(image: np.ndarray):
         layers[0]["s_output"],
         layers[0]["z_output"],
     )
+    print("intermediate:", acc)
     # print(acc.shape)
     acc = do_dot(
         acc,
@@ -136,6 +191,7 @@ def check_wrong():
     with the output of tensorflow lite
     """
     image = x_test[8]
+    export_array(image.flatten(), "image_8")
     label = y_test[8]
     image = np.expand_dims(image, axis=0)  # from (28,28) to (1,28,28)
     acc = invoke(image)
@@ -178,4 +234,4 @@ def compare_results():
     print(table)
 
 
-compare_results()
+# compare_results()

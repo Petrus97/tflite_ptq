@@ -64,21 +64,21 @@ def predict(model: Sequential) -> Sequential:
         print(f"Real: {np.argmax(y_test[i])} - Predicted: {np.argmax(predictions[i])}")
 
 
-def save_model(model: Sequential, format: str = "keras"):
+def save_model(model: Sequential, format: str = "keras", model_name: str = ""):
     models_dir = pathlib.Path(MODEL_DIR)
     models_dir.mkdir(exist_ok=True, parents=True)
     # Save in all formats
     match format:
         case "h5":
-            model.save(f"{MODEL_DIR}/{NET_TYPE}_model.h5", save_format="h5")
+            model.save(f"{MODEL_DIR}/{NET_TYPE}_model_{model_name}.h5", save_format="h5")
         case "tf":
-            model.save(f"{MODEL_DIR}/{NET_TYPE}_model.tf", save_format="tf")
+            model.save(f"{MODEL_DIR}/{NET_TYPE}_model_{model_name}.tf", save_format="tf")
         case "keras":
-            model.save(f"{MODEL_DIR}/{NET_TYPE}_model.keras", save_format="keras")
+            model.save(f"{MODEL_DIR}/{NET_TYPE}_model_{model_name}.keras", save_format="keras")
         case "all":  # save all
-            model.save(f"{MODEL_DIR}/{NET_TYPE}_model.h5", save_format="h5")
-            model.save(f"{MODEL_DIR}/{NET_TYPE}_model.keras", save_format="keras")
-            model.save(f"{MODEL_DIR}/{NET_TYPE}_model.tf", save_format="tf")
+            model.save(f"{MODEL_DIR}/{NET_TYPE}_model_{model_name}.h5", save_format="h5")
+            model.save(f"{MODEL_DIR}/{NET_TYPE}_model_{model_name}.keras", save_format="keras")
+            model.save(f"{MODEL_DIR}/{NET_TYPE}_model_{model_name}.tf", save_format="tf")
 
 
 def load_model(path: str = f"{MODEL_DIR}/{NET_TYPE}_model.keras") -> Sequential:
@@ -107,8 +107,8 @@ def main():
         evaluate(model)
         predict(model)
     if args.lite:
-        convert_to_tflite(model, args.lite)
-    save_model(model)
+        convert_to_tflite(model, args.lite, model_name="")
+    save_model(model, model_name="")
 
 
 

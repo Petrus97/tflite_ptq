@@ -93,7 +93,7 @@ def evaluate_tflite(interpreter: tf.lite.Interpreter):
 
 
 
-def convert_to_tflite(model: Sequential, mode: str):
+def convert_to_tflite(model: Sequential, mode: str, model_name: str = ""):
     print("Converting to TFLite...")
     print(model.summary())
     LITE_MODEL_DIR = MODEL_DIR + "/lite"
@@ -105,7 +105,7 @@ def convert_to_tflite(model: Sequential, mode: str):
         case "dyn":
             # Dynamic range quantization
             tflite_dyn_model = converter.convert()
-            with open(f"{LITE_MODEL_DIR}/dyn_model.tflite", "wb") as f:
+            with open(f"{LITE_MODEL_DIR}/dyn_{model_name}_model.tflite", "wb") as f:
                 f.write(tflite_dyn_model)
             interpreter = tf.lite.Interpreter(model_content=tflite_dyn_model)
             evaluate_tflite(interpreter)
@@ -113,7 +113,7 @@ def convert_to_tflite(model: Sequential, mode: str):
             # Float16 quantization
             converter.target_spec.supported_types = [tf.float16]
             tflite_f16_model = converter.convert()
-            with open(f"{LITE_MODEL_DIR}/f16_model.tflite", "wb") as f:
+            with open(f"{LITE_MODEL_DIR}/f16_{model_name}_model.tflite", "wb") as f:
                 f.write(tflite_f16_model)
             interpreter = tf.lite.Interpreter(model_content=tflite_f16_model)
             evaluate_tflite(interpreter)
@@ -131,7 +131,7 @@ def convert_to_tflite(model: Sequential, mode: str):
             converter.inference_input_type = tf.uint8  # or tf.uint8
             converter.inference_output_type = tf.int8  # or tf.uint8
             tflite_int_model = converter.convert()
-            with open(f"{LITE_MODEL_DIR}/int_model.tflite", "wb") as f:
+            with open(f"{LITE_MODEL_DIR}/int_{model_name}_model.tflite", "wb") as f:
                 f.write(tflite_int_model)
             interpreter = tf.lite.Interpreter(model_content=tflite_int_model)
             evaluate_tflite(interpreter)
