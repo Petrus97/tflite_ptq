@@ -149,9 +149,12 @@ class TFLiteUtils:
         try:
             array = interpreter.get_tensor(tensor_idx)
             np.save(name.replace("/", "_"), array)
-            logging.debug(array)
+            if ("quantize" in name) or ("default" in name):
+                return
+            else:
+                print(array)
         except ValueError:
-            print("Tensor data is null")
+            logging.error("Tensor data is null")
             
 
 
