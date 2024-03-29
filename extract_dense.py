@@ -128,7 +128,7 @@ def import_model(model_name: str = "int_model.tflite"):
                 layer_json["weights"]["shape"] = weights_array.shape
                 layer_json["weights"]["data"] = weights_array.tolist()
                 # Bias array
-                ## Precompute par qb - (Zin @ qw)
+                ## Precompute part qb - (Zin @ qw)
                 z_in_arr = (np.ones(shape=input.ShapeAsNumpy(), dtype=np.int32) * input_zp).transpose()
                 print(z_in_arr.dtype)
                 z_in_dot_qw = weights_array @ z_in_arr
