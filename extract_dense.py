@@ -68,6 +68,22 @@ def precompute_mantissa(scale: float):
     q_mantissa = np.round(mantissa * (1 << 31)).astype(np.int32)
     return q_mantissa, exponent.astype(np.int32)
 
+def conv_bias(filter: np.ndarray, bias: np.ndarray, z_input: int):
+    # For now let's suppose that is always 4
+    filter_n = filter.shape[0] # number of filters
+    filter_h = filter.shape[1] # filter height
+    filter_w = filter.shape[2] # filter width
+    filter_c = filter.shape[3] # filter channels
+    q_bias = np.zeros_like(bias)
+    for i in range(filter_n):
+        acc = 0
+        for j in range(filter_h):
+            for k in range(filter_w):
+                for l in range(filter_c):
+                    acc += filter[i][j][k][l] * z_input
+        q_bias[i] = bias[i] - acc
+    return q_bias
+
 def export_fully_connected(op: Operator, tensors_meta: list, model: Model) -> dict:
     layer_json = {}
     input_tensors = [tensors_meta[op.Inputs(i)] for i in range(op.InputsLength())]
@@ -122,6 +138,56 @@ def export_fully_connected(op: Operator, tensors_meta: list, model: Model) -> di
     layer_json["bias"]["data"] = q_bias.tolist()
     return layer_json
 
+def export_conv2d(op: Operator, tensors_meta: list, model: Model) -> dict:
+    layer_json = {}
+    input_tensors = [tensors_meta[op.Inputs(i)] for i in range(op.InputsLength())]
+    output_tensors = [tensors_meta[op.Outputs(i)] for i in range(op.OutputsLength())]
+    input = input_tensors[0]
+    input_scale = input.Quantization().Scale(0)
+    input_zp = input.Quantization().ZeroPoint(0)
+    print(input.ShapeAsNumpy().transpose())
+    print(f"Input layer {op.OpcodeIndex()}. Scale:", input_scale, "Zero Point:",input_zp)
+    filter = input_tensors[1]
+    filter_scale = filter.Quantization().Scale(0)
+    filter_zp = filter.Quantization().ZeroPoint(0)
+    print(f"Filter/Kernel layer {op.OpcodeIndex()}. Scale:", filter_scale, "Zero Point:",filter_zp)
+    filter_array = get_tensor(model, filter)
+    bias = input_tensors[2]
+    bias_scale = bias.Quantization().Scale(0)
+    bias_zp = bias.Quantization().ZeroPoint(0)
+    print(f"Bias layer {op.OpcodeIndex()}. Scale:", bias_scale, "Zero Point:",bias_zp)
+    bias_array = get_tensor(model, bias)
+    output = output_tensors[0]
+    output_scale = output.Quantization().Scale(0)
+    output_zp = output.Quantization().ZeroPoint(0)
+    # Save scaling factors
+    layer_json["s_input"] = input_scale
+    layer_json["s_weight"] = filter_scale
+    layer_json["s_bias"] = bias_scale
+    layer_json["s_output"] = output_scale
+    q_mantissa, exponent = precompute_mantissa((input_scale*filter_scale)/output_scale)
+    layer_json["fixed_point"] = {
+        "mantissa": int(q_mantissa),
+        "exponent": int(exponent)
+    }
+    # Save zero points
+    layer_json["z_input"] = input_zp
+    layer_json["z_weight"] = filter_zp
+    layer_json["z_bias"] = bias_zp
+    layer_json["z_output"] = output_zp
+    # Filter array
+    layer_json["weights"] = {}
+    layer_json["weights"]["dtype"] = str(filter_array.dtype)
+    layer_json["weights"]["shape"] = filter_array.shape
+    layer_json["weights"]["data"] = filter_array.tolist()
+    # Bias array
+    ### Precompute part qb - conv(qw, Zin)
+    q_bias = conv_bias(filter_array, bias_array, input_zp)
+    layer_json["bias"] = {}
+    layer_json["bias"]["dtype"] = str(q_bias.dtype)
+    layer_json["bias"]["shape"] = q_bias.shape
+    layer_json["bias"]["data"] = q_bias.tolist()
+    return layer_json
 
 def import_model(model_name: str = "int_model.tflite"):
     cur_dir = os.path.dirname(os.path.abspath(__file__))
@@ -152,12 +218,25 @@ def import_model(model_name: str = "int_model.tflite"):
             # input_tensors = [tensors[op.Inputs(i)] for i in range(op.InputsLength())]
             # output_tensors = [tensors[op.Outputs(i)] for i in range(op.OutputsLength())]
             # print(output_tensors)
-            if get_operator_name(opcodes[op.OpcodeIndex()].BuiltinCode()) == 'FULLY_CONNECTED':
-                layer_json = export_fully_connected(op, tensors, model)
-                json_ser["layers"].insert(layer, layer_json)
+            op_name = get_operator_name(opcodes[op.OpcodeIndex()].BuiltinCode())
+            if op_name == 'FULLY_CONNECTED':
+                layer_json["type"] = op_name
+                exported = export_fully_connected(op, tensors, model)
+                layer_json.update(exported)
+                json_ser["layers"].insert(op.OpcodeIndex(), layer_json)
+                layer += 1
+            elif op_name == "CONV_2D":
+                layer_json["type"] = op_name
+                exported = export_conv2d(op, tensors, model)
+                layer_json.update(exported)
+                json_ser["layers"].insert(op.OpcodeIndex(), layer_json)
+                layer += 1
+            else:
+                layer_json["type"] = op_name
+                json_ser["layers"].insert(op.OpcodeIndex(), layer_json)
                 layer += 1
         with open("extracted.json", "w") as f:
-            f.write(json.dumps(json_ser))
+            f.write(json.dumps(json_ser, indent=4))
 
 
 
