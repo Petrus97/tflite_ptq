@@ -2,7 +2,7 @@ import os
 import tflite
 import numpy as np
 import json
-from tflite import Model, Operator
+from tflite import Model, Operator, Tensor
 
 
 operator_names = {attr_value: attr_name for attr_name, attr_value in vars(tflite.BuiltinOperator).items() if not callable(attr_value) and not attr_name.startswith("__")}
@@ -84,14 +84,15 @@ def conv_bias(filter: np.ndarray, bias: np.ndarray, z_input: int):
         q_bias[i] = bias[i] - acc
     return q_bias
 
-def export_fully_connected(op: Operator, tensors_meta: list, model: Model) -> dict:
+def export_fully_connected(op: Operator, tensors_meta: list[Tensor], model: Model) -> dict:
     layer_json = {}
     input_tensors = [tensors_meta[op.Inputs(i)] for i in range(op.InputsLength())]
     output_tensors = [tensors_meta[op.Outputs(i)] for i in range(op.OutputsLength())]
     input = input_tensors[0]
     input_scale = input.Quantization().Scale(0)
     input_zp = input.Quantization().ZeroPoint(0)
-    print(input.ShapeAsNumpy().transpose())
+    print(input.ShapeAsNumpy())
+    layer_json["input_shape"] = input.ShapeAsNumpy().tolist()
     print(f"Input layer {op.OpcodeIndex()}. Scale:", input_scale, "Zero Point:",input_zp)
     weights = input_tensors[1]
     weights_scale = weights.Quantization().Scale(0)
@@ -106,6 +107,7 @@ def export_fully_connected(op: Operator, tensors_meta: list, model: Model) -> di
     output = output_tensors[0]
     output_scale = output.Quantization().Scale(0)
     output_zp = output.Quantization().ZeroPoint(0)
+    layer_json["output_shape"] = output.ShapeAsNumpy().tolist()
     # Save scaling factors
     layer_json["s_input"] = input_scale
     layer_json["s_weight"] = weights_scale
@@ -138,14 +140,16 @@ def export_fully_connected(op: Operator, tensors_meta: list, model: Model) -> di
     layer_json["bias"]["data"] = q_bias.tolist()
     return layer_json
 
-def export_conv2d(op: Operator, tensors_meta: list, model: Model) -> dict:
+def export_conv2d(op: Operator, tensors_meta: list[Tensor], model: Model) -> dict:
     layer_json = {}
     input_tensors = [tensors_meta[op.Inputs(i)] for i in range(op.InputsLength())]
     output_tensors = [tensors_meta[op.Outputs(i)] for i in range(op.OutputsLength())]
+    # Extract input tensor
     input = input_tensors[0]
     input_scale = input.Quantization().Scale(0)
     input_zp = input.Quantization().ZeroPoint(0)
-    print(input.ShapeAsNumpy().transpose())
+    print(input.ShapeAsNumpy())
+    layer_json["input_shape"] = input.ShapeAsNumpy().tolist()
     print(f"Input layer {op.OpcodeIndex()}. Scale:", input_scale, "Zero Point:",input_zp)
     filter = input_tensors[1]
     filter_scale = filter.Quantization().Scale(0)
@@ -160,6 +164,7 @@ def export_conv2d(op: Operator, tensors_meta: list, model: Model) -> dict:
     output = output_tensors[0]
     output_scale = output.Quantization().Scale(0)
     output_zp = output.Quantization().ZeroPoint(0)
+    layer_json["output_shape"] = output.ShapeAsNumpy().tolist()
     # Save scaling factors
     layer_json["s_input"] = input_scale
     layer_json["s_weight"] = filter_scale
@@ -188,6 +193,17 @@ def export_conv2d(op: Operator, tensors_meta: list, model: Model) -> dict:
     layer_json["bias"]["shape"] = q_bias.shape
     layer_json["bias"]["data"] = q_bias.tolist()
     return layer_json
+
+def add_shapes(op: Operator, tensors_meta: list[Tensor]) -> dict:
+    input_tensors = [tensors_meta[op.Inputs(i)] for i in range(op.InputsLength())]
+    output_tensors = [tensors_meta[op.Outputs(i)] for i in range(op.OutputsLength())]
+    input = input_tensors[0]
+    output = output_tensors[0]
+    return {
+        "input_shape": input.ShapeAsNumpy().tolist(),
+        "output_shape": output.ShapeAsNumpy().tolist()
+    }
+
 
 def import_model(model_name: str = "int_model.tflite"):
     cur_dir = os.path.dirname(os.path.abspath(__file__))
@@ -233,6 +249,8 @@ def import_model(model_name: str = "int_model.tflite"):
                 layer += 1
             else:
                 layer_json["type"] = op_name
+                metadata = add_shapes(op, tensors)
+                layer_json.update(metadata)
                 json_ser["layers"].insert(op.OpcodeIndex(), layer_json)
                 layer += 1
         with open("extracted.json", "w") as f:
