@@ -201,6 +201,8 @@ def add_shapes(op: Operator, tensors_meta: list[Tensor]) -> dict:
     output = output_tensors[0]
     return {
         "input_shape": input.ShapeAsNumpy().tolist(),
+        "z_input": input.Quantization().ZeroPoint(0),
+        "s_input": input.Quantization().Scale(0),
         "output_shape": output.ShapeAsNumpy().tolist()
     }
 
