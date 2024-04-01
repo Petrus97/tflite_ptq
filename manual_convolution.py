@@ -22,6 +22,24 @@ Z_bias = 0
 Z_weights = 0
 Z_output = -13
 
+def quantize_multiplier(scale: float):
+    mantissa, exponent = np.frexp(scale)
+    q_mantissa = np.round(mantissa * (1 << 31)).astype(np.int32)
+    return (q_mantissa, exponent.astype(np.int32))
+
+
+def multiply_by_quantize_mul(x, scale):
+    q_mantissa, exponent = quantize_multiplier(scale)
+    print(q_mantissa, exponent)
+    reduced_mantissa = (
+        ((q_mantissa + (1 << 15)) >> 16) if q_mantissa < 0x7FFF0000 else 0x7FFF
+    )
+    total_shifts = 15 - exponent
+    x = x * np.int64(reduced_mantissa)
+    x = x + (1 << (total_shifts - 1))
+    result = np.right_shift(x, total_shifts)
+    return result
+
 def load_input() -> np.ndarray:
     from os.path import exists
     if exists("serving_default_flatten_input:0.npy"):
@@ -118,7 +136,8 @@ def convolution(input: np.ndarray, filters: np.ndarray, q_bias: np.int32) -> np.
                         out[i, j] += filter[ii, jj] * reshaped_input[i + ii, j + jj]
                 # Relu layer
                 out[i, j] = out[i, j] + q_bias
-                out[i, j] = scale_factor * out[i, j]
+                # out[i, j] = scale_factor * out[i, j]
+                out[i, j] = multiply_by_quantize_mul(out[i, j], scale_factor)
                 out[i, j] += Zy
                 out[i, j] = max(out[i, j], -128)
                 out[i, j] = min(out[i, j], 127)
@@ -146,8 +165,10 @@ def dense_layer(q_flat: np.ndarray, q_weights: np.ndarray, q_bias: np.ndarray) -
     scale_factor_dense = (S_x * S_w) / S_y
 
     dot_prod = np.dot(q_weights.astype(np.int32), q_flat.astype(np.int32))
+    print(dot_prod)
     acc = dot_prod + q_bias
-    acc = (scale_factor_dense * acc).astype(np.float32)
+    # acc = (scale_factor_dense * acc).astype(np.float32)
+    acc = multiply_by_quantize_mul(acc.astype(np.int64), scale_factor_dense)
     acc += Z_y
     acc = np.maximum(acc, -128)
     acc = np.minimum(acc, 127)
@@ -166,20 +187,6 @@ def evaluate_test_set():
             correct += 1
     print("Lite accuracy:", (correct/10000)*100, "%")
 
-# evaluate_test_set(weights_out, q_bias)
-
-def check_wrong(q_weights: np.ndarray, q_bias: np.ndarray):
-    image = x_test[8837]
-    label = y_test[8837]
-    image = np.expand_dims(image, axis=0) # from (28,28) to (1,28,28)
-    q_image = quantize(image)
-    q_flat = q_image.flatten()
-    acc = dense_layer(q_flat=q_flat, q_weights=q_weights, q_bias=q_bias)
-    predicted = np.argmax(acc)
-    print(acc, predicted, label)
-
-# check_wrong(weights_out, q_bias)
-
 def my_invoke(image: np.ndarray) -> np.ndarray:
     q_image = quantize(image)
     filters, biases = load_convolutional()
@@ -192,6 +199,14 @@ def my_invoke(image: np.ndarray) -> np.ndarray:
     q_dense_bias = precompute_qbias(layer="dense", q_b=q_b_dense, q_w=q_weights, Z_x=Z_x)
     result = dense_layer(q_flat=maxpooled.flatten(), q_weights=q_weights, q_bias=q_dense_bias)
     return result
+
+def check_wrong(idx: int = 8837):
+    image = x_test[idx]
+    label = y_test[idx]
+    image = np.expand_dims(image, axis=(0, -1)) # from (28,28) to (1,28,28,1)
+    result = my_invoke(image)
+    predicted = np.argmax(result)
+    print(result, predicted, label)
 
 
 def compare_results():
@@ -285,8 +300,10 @@ def main():
     # qY = (SwSx)/Sy (conv(qW, qX) + qBias) + Zy
     q_conv = convolution(q_input.astype(np.int32), filters.astype(np.int32), q_bias_conv)
     print("q_conv meta:", q_conv.shape, q_conv.dtype)
+    print(q_conv.reshape(26,26))
     # Step 3: Maxpool 2D
     maxpooled = maxpool2D(q_conv)
+    print(maxpooled)
     print("maxpooled meta:", maxpooled.shape, maxpooled.dtype)
     # Step 4: Load the dense layer
     q_weights, q_b_dense = load_dense()
@@ -295,8 +312,9 @@ def main():
     result = dense_layer(q_flat=maxpooled.flatten(), q_weights=q_weights, q_bias=q_dense_bias)
     print("result meta:", result.shape, result.dtype)
     print(result, np.argmax(result))
-    compare_results()
+    # compare_results()
     # evaluate_test_set()
+    # check_wrong(8837)
 
 
 if __name__ == "__main__":
