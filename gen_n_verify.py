@@ -260,21 +260,19 @@ def evaluate(model: list[Layer], x_test: np.ndarray, y_test: np.ndarray):
         if np.argmax(predictions) == y_test[i]:
             correct += 1
     print("Accuracy:", correct / len(x_test))
-# input = x_test[8]
-# print(input.shape, y_test[8])
-# input = input.reshape(1, 28, 28, 1)
-# print(layers)
-# # Quantize the input
-# q_input = layers[0].apply_layer(input)
-# # print(q_input)
-# q_conv = layers[1].apply_layer(q_input)
-# print(q_conv.reshape(26,26))
-# q_maxpool = layers[2].apply_layer(q_conv)
-# print(q_maxpool.reshape(13, 13))
-# q_reshape = layers[3].apply_layer(q_maxpool)
-# print(q_reshape.shape)
-# q_fc = layers[4].apply_layer(q_reshape)
-# print(q_fc)
-# print(np.argmax(q_fc))
+
+def check_image(model: list[Layer], x_test: np.ndarray, y_test: np.ndarray, index: int):
+    predictions = x_test[index]
+    predictions = predictions.reshape(1, 28, 28, 1)
+    for layer in model:
+        predictions = layer.apply_layer(predictions)
+    print(predictions)
+    print("Predicted:", np.argmax(predictions))
+    print("Original:", y_test[index])
+
+
+
+check_image(layers, x_test, y_test, 8)
 predict(layers, x_test[:10], y_test[:10])
-evaluate(layers, x_test, y_test)
+# evaluate(layers, x_test, y_test)
+
