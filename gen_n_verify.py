@@ -31,6 +31,9 @@ class Layer:
 
     def apply_layer(self, input: np.ndarray) -> np.ndarray:
         return np.ndarray([])  # Placeholder return value
+    
+    def generate_code(self):
+        return ""
 
 class Quantize(Layer):
     def __init__(self, Z_input: np.int8 = np.int8(0), S_input: np.float64 = np.float64(0)):
@@ -113,6 +116,59 @@ class Conv2D(Layer):
     def apply_layer(self, input: np.ndarray) -> np.ndarray:
         return self.conv2d(input)
 
+    def generate_code(self):
+        '''Generate C code for the convolution layer'''
+        code = ""
+        code += f"void conv2d(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int8_t output[{self.output_shape[0]}][{self.output_shape[1]}][{self.output_shape[2]}][{self.output_shape[3]}])" + "{\n"
+        code += f"    int8_t filter[{self.filter.shape[0]}][{self.filter.shape[1]}][{self.filter.shape[2]}][{self.filter.shape[3]}] = " + "{\n"
+        for i in range(self.filter.shape[0]):
+            code += "        {"
+            for j in range(self.filter.shape[1]):
+                code += " {"
+                for k in range(self.filter.shape[2]):
+                    code += " {"
+                    for l in range(self.filter.shape[3]):
+                        code += f" {self.filter[i][j][k][l]},"
+                    code += " },"
+                code += " },"
+            code += " },\n"
+        code += "    };\n"
+        code += f"    const int32_t bias[{self.bias.shape[0]}] = " + "{"
+        for i in range(self.bias.shape[0]):
+            code += f" {self.bias[i]},"
+        code += " };\n"
+        code += f"    const int8_t output_zero_point = {self.output_zero_point};\n"
+        code += f"    const int8_t input_zero_point = {self.input_zero_point};\n"
+        code += f"    const int8_t filter_zero_point = {self.filter_zero_point};\n"
+        code += f"    const int8_t bias_zero_point = {self.bias_zero_point};\n"
+        code += f"    const int32_t q_mantissa = {self.q_mantissa};\n"
+        code += f"    const int32_t exponent = {self.exponent};\n"
+        code += f"    for(int i = 0; i < {self.output_shape[0]}; i++)" + "{\n"
+        code += f"        for(int j = 0; j < {self.output_shape[1]}; j++)" + "{\n"
+        code += f"            for(int k = 0; k < {self.output_shape[2]}; k++)" + "{\n"
+        code += f"                for(int l = 0; l < {self.output_shape[3]}; l++)" + "{\n"
+        code += f"                    int32_t acc = 0;\n"
+        code += f"                    for(int m = 0; m < {self.filter.shape[1]}; m++)" + "{\n"
+        code += f"                        for(int n = 0; n < {self.filter.shape[2]}; n++)" + "{\n"
+        code += f"                            for(int o = 0; o < {self.filter.shape[3]}; o++)" + "{\n"
+        code += f"                                acc += input[i][m + j][n + k][o] * filter[i][m][n][o];\n"
+        code += "                            }\n"
+        code += "                         }\n"
+        code += "                     }\n"
+        code += f"                    acc += bias[i];\n"
+        code += f"                    acc = multiply_by_quantize_mul(acc, q_mantissa, exponent);\n"
+        code += f"                    acc += output_zero_point;\n"
+        code += f"                    acc = acc > 127 ? 127 : acc;\n"
+        code += f"                    acc = acc < -128 ? -128 : acc;\n"
+        code += f"                    output[i][j][k][l] = acc;\n"
+        code += "                }\n"
+        code += "            }\n"
+        code += "        }\n"
+        code += "    }\n"
+        code += "}\n"
+        return code
+
+
 class MaxPool2D(Layer):
     def __init__(self, input_shape: tuple, output_shape: tuple) -> None:
         self.input_shape = input_shape
@@ -129,6 +185,26 @@ class MaxPool2D(Layer):
     
     def apply_layer(self, input: np.ndarray) -> np.ndarray:
         return self.max_pool2d(input)
+    
+    def generate_code(self):
+        '''Generate C code for the max pooling layer'''
+        code = ""
+        code += f"void max_pool2d(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int8_t output[{self.output_shape[0]}][{self.output_shape[1]}][{self.output_shape[2]}][{self.output_shape[3]}])" + "{\n"
+        code += f"    for(int i = 0; i < {self.output_shape[0]}; i++)" + "{\n"
+        code += f"        for(int j = 0; j < {self.output_shape[1]}; j++)" + "{\n"
+        code += f"            for(int k = 0; k < {self.output_shape[2]}; k++)" + "{\n"
+        code += f"                for(int l = 0; l < {self.output_shape[3]}; l++)" + "{\n"
+        code += f"                    int8_t max = input[i][j*2][k*2][l];\n"
+        code += f"                    max = input[i][j*2][k*2+1][l] > max ? input[i][j*2][k*2+1][l] : max;\n"
+        code += f"                    max = input[i][j*2+1][k*2][l] > max ? input[i][j*2+1][k*2][l] : max;\n"
+        code += f"                    max = input[i][j*2+1][k*2+1][l] > max ? input[i][j*2+1][k*2+1][l] : max;\n"
+        code += f"                    output[i][j][k][l] = max;\n"
+        code += "                }\n"
+        code += "            }\n"
+        code += "        }\n"
+        code += "    }\n"
+        code += "}\n"
+        return code
 
 class Reshape(Layer):
     def __init__(self, input_shape: tuple, output_shape: tuple) -> None:
@@ -191,6 +267,45 @@ class FullyConnected(Layer):
 
     def apply_layer(self, input: np.ndarray) -> np.ndarray:
         return self.fully_connected(input)
+    
+    def generate_code(self):
+        code = ""
+        code += f"void fully_connected(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}], int8_t output[{self.output_shape[1]}])" + "{\n"
+        code += f"    const int8_t weights[{self.weights.shape[0]}][{self.weights.shape[1]}] = " + "{\n"
+        for i in range(self.weights.shape[0]):
+            code += "        {"
+            for j in range(self.weights.shape[1]):
+                code += f" {self.weights[i][j]},"
+            code += " },\n"
+        code += "    };\n"
+        code += f"    const int32_t bias[{self.bias.shape[0]}] = " + "{"
+        for i in range(self.bias.shape[0]):
+            code += f" {self.bias[i][0]},"
+        code += " };\n"
+        code += f"    const int8_t output_zero_point = {self.output_zero_point};\n"
+        code += f"    const int8_t input_zero_point = {self.input_zero_point};\n"
+        code += f"    const int8_t weight_zero_point = {self.weight_zero_point};\n"
+        code += f"    const int8_t bias_zero_point = {self.bias_zero_point};\n"
+        code += f"    const int32_t q_mantissa = {self.q_mantissa};\n"
+        code += f"    const int32_t exponent = {self.exponent};\n"
+        code += f"    int32_t dot_product[{self.output_shape[1]}] = " + "{0};\n"
+        code += f"    for(int i = 0; i < {self.output_shape[0]}; i++)" + "{\n"
+        code += f"        for(int j = 0; j < {self.weights.shape[0]}; j++)" + "{\n"
+        code += f"            for(int k = 0; k < {self.weights.shape[1]}; k++)" + "{\n"
+        code += f"                dot_product[j] += input[i][k] * weights[j][k];\n"
+        code += "            }\n"
+        code += f"        dot_product[j] += bias[j];\n"
+        code += f"        dot_product[j] = multiply_by_quantize_mul(dot_product[j], q_mantissa, exponent);\n"
+        code += f"        dot_product[j] += output_zero_point;\n"
+        code += f"        dot_product[j] = dot_product[j] > 127 ? 127 : dot_product[j];\n"
+        code += f"        dot_product[j] = dot_product[j] < -128 ? -128 : dot_product[j];\n"
+        code += f"        output[j] = dot_product[j];\n"
+        code += "       }\n"
+        code += "    }\n"
+        code += "}\n"
+        return code
+    
+
 
 # Load the data JSON
 extr_json = open("extracted.json", "r").read()
@@ -276,3 +391,6 @@ check_image(layers, x_test, y_test, 8)
 predict(layers, x_test[:10], y_test[:10])
 # evaluate(layers, x_test, y_test)
 
+print(layers[1].generate_code())
+print(layers[2].generate_code())
+print(layers[4].generate_code())
