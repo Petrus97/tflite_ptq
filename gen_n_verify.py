@@ -269,7 +269,7 @@ class FullyConnected(Layer):
         return self.fully_connected(input)
     
     def generate_code(self):
-        code = ""
+        code = self.generate_dot()
         code += f"void fully_connected(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}], int8_t output[{self.output_shape[1]}])" + "{\n"
         code += f"    const int8_t weights[{self.weights.shape[0]}][{self.weights.shape[1]}] = " + "{\n"
         for i in range(self.weights.shape[0]):
@@ -288,22 +288,49 @@ class FullyConnected(Layer):
         code += f"    const int8_t bias_zero_point = {self.bias_zero_point};\n"
         code += f"    const int32_t q_mantissa = {self.q_mantissa};\n"
         code += f"    const int32_t exponent = {self.exponent};\n"
-        code += f"    int32_t dot_product[{self.output_shape[1]}] = " + "{0};\n"
+        code += f"    int32_t dot_result[{self.output_shape[1]}] = {{0}};\n"
+        code += f"    dot_product(input, weights, dot_result);\n"
+        code += f"    for(int i = 0; i < {self.output_shape[1]}; i++)" + "{\n"
+        code += f"        dot_result[i] = dot_result[i] + bias[i];\n"
+        code += f"        dot_result[i] = multiply_by_quantize_mul(dot_result[i], q_mantissa, exponent);\n"
+        code += f"        dot_result[i] += output_zero_point;\n"
+        code += f"        dot_result[i] = dot_result[i] > 127 ? 127 : dot_result[i];\n"
+        code += f"        dot_result[i] = dot_result[i] < -128 ? -128 : dot_result[i];\n"
+        code += f"        output[i] = dot_result[i];\n"
+        code += "    }\n"
+        code += "}\n"
+        return code
+    
+    def generate_dot(self):
+        code = ""
+        code += f"void dot_product(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}], const int8_t weights[{self.weights.shape[0]}][{self.weights.shape[1]}], int32_t dot_result[{self.weights.shape[0]}])" + "{\n"
         code += f"    for(int i = 0; i < {self.output_shape[0]}; i++)" + "{\n"
         code += f"        for(int j = 0; j < {self.weights.shape[0]}; j++)" + "{\n"
         code += f"            for(int k = 0; k < {self.weights.shape[1]}; k++)" + "{\n"
-        code += f"                dot_product[j] += input[i][k] * weights[j][k];\n"
+        code += f"                dot_result[j] += (int32_t)input[i][k] * (int32_t)weights[j][k];\n"
         code += "            }\n"
-        code += f"        dot_product[j] += bias[j];\n"
-        code += f"        dot_product[j] = multiply_by_quantize_mul(dot_product[j], q_mantissa, exponent);\n"
-        code += f"        dot_product[j] += output_zero_point;\n"
-        code += f"        dot_product[j] = dot_product[j] > 127 ? 127 : dot_product[j];\n"
-        code += f"        dot_product[j] = dot_product[j] < -128 ? -128 : dot_product[j];\n"
-        code += f"        output[j] = dot_product[j];\n"
         code += "       }\n"
         code += "    }\n"
         code += "}\n"
         return code
+    
+    def generate_opt_dot(self):
+        code = ""
+        code += f"int32_t dot_product(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}], int32_t out[{self.output_shape[1]}])" + "{\n"
+        for i in range(self.weights.shape[0]):
+            code += f"    out[{i}] = 0;\n"
+            for j in range(self.weights.shape[1]):
+                if(self.weights[i][j] == 0):
+                    continue
+                elif(self.weights[i][j] == 1):
+                    code += f"    out[{i}] += input[{j}];\n"
+                elif(self.weights[i][j] < 0):
+                    code += f"    out[{i}] += multiply_n{abs(self.weights[i][j])}(input[{j}]);\n"
+                else:
+                    code += f"    out[{i}] += multiply_{self.weights[i][j]}(input[{j}]);\n"
+        code += "}\n"
+        return code
+    
     
 
 
