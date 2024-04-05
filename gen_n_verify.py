@@ -237,22 +237,37 @@ class Conv2D(Layer):
         code += f"    const int8_t bias_zero_point = {self.bias_zero_point};\n"
         code += f"    const int32_t q_mantissa = {self.q_mantissa};\n"
         code += f"    const int32_t exponent = {self.exponent};\n"
-        code += f"    for(int i = 0; i < {self.output_shape[0]}; i++)" + "{\n"
-        code += f"        for(int j = 0; j < {self.output_shape[1]}; j++)" + "{\n"
-        code += f"            for(int k = 0; k < {self.output_shape[2]}; k++)" + "{\n"
-        code += f"                for(int l = 0; l < {self.output_shape[3]}; l++)" + "{\n"
-        code += f"                    int32_t acc = apply_filter_{i}(input, i, j, k, l);\n"
-        code += f"                    acc += bias[i];\n"
-        code += f"                    acc = multiply_by_quantize_mul(acc, q_mantissa, exponent);\n"
-        code += f"                    acc += output_zero_point;\n"
-        code += f"                    acc = acc > 127 ? 127 : acc;\n"
-        code += f"                    acc = acc < -128 ? -128 : acc;\n"
-        code += f"                    output[i][j][k][l] = acc;\n"
-        code += "                }\n"
-        code += "            }\n"
-        code += "        }\n"
-        code += "    }\n"
+        for i in range(self.output_shape[0]):
+            code += f"    for(int j = 0; j < {self.output_shape[1]}; j++)" + "{\n"
+            code += f"        for(int k = 0; k < {self.output_shape[2]}; k++)" + "{\n"
+            code += f"            for(int l = 0; l < {self.output_shape[3]}; l++)" + "{\n"
+            code += f"                int32_t acc = apply_filter_{i}(input, {i}, j, k, l);\n"
+            code += f"                acc += bias[{i}];\n"
+            code += f"                acc = multiply_by_quantize_mul(acc, q_mantissa, exponent);\n"
+            code += f"                acc += output_zero_point;\n"
+            code += f"                acc = acc > 127 ? 127 : acc;\n"
+            code += f"                acc = acc < -128 ? -128 : acc;\n"
+            code += f"                output[{i}][j][k][l] = acc;\n"
+            code += "            }\n"
+            code += "        }\n"
+            code += "    }\n"
         code += "}\n"
+        # code += f"    for(int i = 0; i < {self.output_shape[0]}; i++)" + "{\n"
+        # code += f"        for(int j = 0; j < {self.output_shape[1]}; j++)" + "{\n"
+        # code += f"            for(int k = 0; k < {self.output_shape[2]}; k++)" + "{\n"
+        # code += f"                for(int l = 0; l < {self.output_shape[3]}; l++)" + "{\n"
+        # code += f"                    int32_t acc = apply_filter_{i}(input, i, j, k, l);\n"
+        # code += f"                    acc += bias[i];\n"
+        # code += f"                    acc = multiply_by_quantize_mul(acc, q_mantissa, exponent);\n"
+        # code += f"                    acc += output_zero_point;\n"
+        # code += f"                    acc = acc > 127 ? 127 : acc;\n"
+        # code += f"                    acc = acc < -128 ? -128 : acc;\n"
+        # code += f"                    output[i][j][k][l] = acc;\n"
+        # code += "                }\n"
+        # code += "            }\n"
+        # code += "        }\n"
+        # code += "    }\n"
+        # code += "}\n"
         return code
 
 
@@ -507,4 +522,4 @@ check_image(layers, x_test, y_test, 8)
 
 # print(layers[1].generate_code())
 print(layers[1].generate_opt_code())
-# print(layers[4].generate_code())
+# print(layers[4].generate_opt_dot())
