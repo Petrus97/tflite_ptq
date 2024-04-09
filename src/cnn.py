@@ -27,7 +27,7 @@ assert x_train[0].shape == (28, 28, 1)
 def create_model() -> Sequential:
     model = Sequential(
         [
-            Conv2D(filters=1, kernel_size=3, input_shape=(28, 28, 1), use_bias=False, activation="relu"),
+            Conv2D(filters=2, kernel_size=3, input_shape=(28, 28, 1), use_bias=False, activation="relu"),
             MaxPool2D(pool_size=2),
             # Conv2D(filters=1, kernel_size=1, use_bias=True, activation="relu"),
             Flatten(),
@@ -124,11 +124,11 @@ def main():
         evaluate(model)
         predict(model)
     if args.lite:
-        tf_utils = TFLiteUtils(model, args.lite, model_name=NET_TYPE+"1d_conv")
+        tf_utils = TFLiteUtils(model, args.lite, model_name=NET_TYPE+"2_conv")
         tf_utils.set_dataset(x_train, y_train, x_test, y_test)
         tf_utils.convert_to_tflite()
         # convert_to_tflite(model, args.lite, model_name="")
-    save_model(model, model_name=NET_TYPE+"1d_conv")
+    save_model(model, model_name=NET_TYPE+"2_conv")
 
 
 

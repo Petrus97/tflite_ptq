@@ -85,9 +85,9 @@ class TFLiteUtils:
         tflite_int_model = self.converter.convert()
         with open(f"{self.LITE_MODEL_DIR}/int_{self.model_name}_model.tflite", "wb") as f:
             f.write(tflite_int_model)
-        interpreter = tf.lite.Interpreter(model_content=tflite_int_model)
+        interpreter = tf.lite.Interpreter(model_content=tflite_int_model, experimental_preserve_all_tensors=True)
         self.evaluate_tflite(interpreter)
-        self.check_tensors(interpreter, 8)
+        self.check_tensors(interpreter, 0)
 
     def evaluate_tflite(self, interpreter: tf.lite.Interpreter):
         interpreter.allocate_tensors()
@@ -151,10 +151,25 @@ class TFLiteUtils:
             np.save(name.replace("/", "_"), array)
             if ("quantize" in name) or ("default" in name):
                 return
+            elif ("conv" in name) or ("max" in name):
+                self.__print_np__(array)
+            elif name == "":
+                return
             else:
                 print(array)
         except ValueError:
             logging.error("Tensor data is null")
+    
+    def __print_np__(self, array: np.ndarray):
+        threshold = np.get_printoptions()["threshold"]
+        linewidth = np.get_printoptions()["linewidth"]
+        np.set_printoptions(threshold=np.inf, linewidth=np.inf)
+        if(len(array.shape) == 4 and array.shape[0] == 1):
+            for i in range(array.shape[3]):
+                print(array[0,:,:,i])
+        else:
+            print(array)
+        np.set_printoptions(threshold=threshold, linewidth=linewidth)
             
 
 
