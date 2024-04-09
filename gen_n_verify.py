@@ -3,6 +3,7 @@ import tensorflow as tf
 import keras.datasets.mnist as mnist
 from prettytable import PrettyTable
 import json
+from src.logger import logging
 
 def to_np_dtype(type_str: str):
     match type_str:
@@ -77,6 +78,9 @@ class Conv2D(Layer):
         self.q_mantissa = mantissa
         self.exponent = exponent
 
+    def set_fixed_points(self, fixed_points: list):
+        self.fixed_points = fixed_points
+
     def set_zero_points(self, input_zero_point: np.int8, filter_zero_point: np.int8, bias_zero_point: np.int8, output_zero_point: np.int8):
         self.input_zero_point = input_zero_point
         self.filter_zero_point = filter_zero_point
@@ -116,44 +120,119 @@ class Conv2D(Layer):
                 acc += np.int32(input[i][j+2][k+2][l]) * np.int32(self.filter[i][2][2][0])
         return acc
 
+    def conv_by_filter(self, input: np.ndarray, filter: np.ndarray, ch_idx: int, fixed_point: dict, output_zero_point: np.int8, feature_map: np.ndarray) -> np.ndarray:
+        out_height = input.shape[1] - filter.shape[1] + 1
+        out_width = input.shape[2] - filter.shape[2] + 1
+        filter_height = filter.shape[1]
+        filter_width = filter.shape[2]
+        filter_depth = filter.shape[3]
+        for out_h in range(out_height):
+            for out_w in range(out_width):
+                acc = np.int32(0)
+                for cin in range(filter_depth):
+                    for f_h in range(filter_height):
+                        for f_w in range(filter_width):
+                            acc += np.int32(input[0][out_h+f_h][out_w+f_w][cin]) * np.int32(filter[ch_idx][f_h][f_w][cin])
+                acc += self.bias[ch_idx]
+                acc = multiply_by_quantize_mul(np.int64(acc), fixed_point["mantissa"], fixed_point["exponent"])
+                acc += output_zero_point
+                acc = np.clip(acc, -128, 127)
+                feature_map[0][out_h][out_w][ch_idx] = acc
+        return feature_map
+
     def conv2d(self, input: np.ndarray) -> np.ndarray:
+        input.flags.writeable = False # make input read-only
+        # logging.info(f"input shape: {input.shape}, {len(input.shape)}, {self.input_shape}")
+        # logging.info(f"filter shape: {self.filter.shape}")
+        # logging.info(f"bias shape: {self.bias.shape}")
+        # logging.info(f"output shape: {self.output_shape}")
+        # logging.info(f"bias {self.bias}")
         gen_code = True
         feature_map = np.zeros(self.output_shape, dtype=np.int8)
-        for i in range(self.output_shape[0]): # output channels
-            if gen_code:
-                self.opt_conv_code = f"int32_t apply_filter_{i}(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int i, int j, int k, int l) {{\n"
-                self.opt_conv_code += f"    int32_t acc = 0;\n"
-            for j in range(self.output_shape[1]): # output height
-                for k in range(self.output_shape[2]): # output width
-                    for l in range(self.output_shape[3]): # output depth
-                        # feature_map[i][j][k][l] = self.output_zero_point
-                        acc = np.int32(0)
-                        # acc += self.__mul_by_filter__(input, i, j, k, l)
-                        for m in range(self.filter.shape[1]):
-                            for n in range(self.filter.shape[2]):
-                                for o in range(self.filter.shape[3]):
-                                    # feature_map[i][j][k][l] += input[i][m][n][o] * self.filter[i][m][n][o]
-                                    acc += np.int32(input[i][j + m][k + n][l + o]) * np.int32(self.filter[i][m][n][o])
-                                    if gen_code:
-                                        self.opt_conv_code += f"    acc += input[i][j + {m}][k + {n}][l + {o}] * {self.filter[i][m][n][o]};\n"
-                                    # print(f"acc += input[i][j + {m}][k + {n}][l + {o}] * filter[{i}][{m}][{n}][{o}]({self.filter[i][m][n][o]}) = {acc}")
-                        ## acc = np.sum(np.int32(input[i, j:j+self.filter.shape[1], k:k+self.filter.shape[2], :]) * np.int32(self.filter[i]))
-                        if gen_code:
-                            self.opt_conv_code += f"    return acc;\n"
-                            self.opt_conv_code += "}\n"
-                            gen_code = False
+        # assert dimensions
+        assert(len(input.shape) == 4)
+        assert(len(self.filter.shape) == 4)
+        assert(len(self.bias.shape) == 1)
+        assert(len(self.output_shape) == 4)
+        # Extract input dimensions
+        input_batch_size = input.shape[0]
+        input_height = input.shape[1]
+        input_width = input.shape[2]
+        input_depth = input.shape[3]
+        # Extract filter dimensions
+        filter_number = self.filter.shape[0]
+        filter_height = self.filter.shape[1]
+        filter_width = self.filter.shape[2]
+        filter_depth = self.filter.shape[3]
+        # Extract output dimensions
+        output_batch_size = self.output_shape[0]
+        output_height = self.output_shape[1]
+        output_width = self.output_shape[2]
+        output_channels = self.output_shape[3]
+        # assert dimensions
+        assert(output_channels == filter_number)
+        assert(filter_depth == input_depth)
+        assert(input_batch_size == output_batch_size and input_batch_size == 1) # only single core batch execution
+        
+        # Since we asserted that we have a single batch size, we can iterate over the output channels
+        for cout in range(output_channels):
+            feature_map = self.conv_by_filter(input, self.filter, cout, self.fixed_points[cout], self.output_zero_point, feature_map)
+            # for out_h in range(output_height):
+            #     for out_w in range(output_width):
+            #         acc = np.int32(0)
+            #         for cin in range(filter_depth):
+            #             for f_h in range(filter_height):
+            #                 for f_w in range(filter_width):
+            #                     acc += np.int32(input[0][out_h+f_h][out_w+f_w][cin]) * np.int32(self.filter[cout][f_h][f_w][cin])
+            #         acc += self.bias[cout]
+            #         acc = multiply_by_quantize_mul(np.int64(acc), self.fixed_points[cout]["mantissa"], self.fixed_points[cout]["exponent"])
+            #         acc += self.output_zero_point
+            #         acc = np.clip(acc, -128, 127)
+            #         feature_map[0][out_h][out_w][cout] = acc
 
-                        # feature_map[i][j][k][l] += self.bias[i]
-                        acc += self.bias[i]
-                        # feature_map[i][j][k][l] = multiply_by_quantize_mul(feature_map[i][j][k][l], self.q_mantissa, self.exponent)
-                        acc = multiply_by_quantize_mul(np.int64(acc), self.q_mantissa, self.exponent)
-                        # feature_map[i][j][k][l] += self.output_zero_point
-                        acc += self.output_zero_point
-                        # feature_map[i][j][k][l] = np.clip(feature_map[i][j][k][l], -128, 127)
-                        acc = np.clip(acc, -128, 127)
-                        feature_map[i][j][k][l] = acc
-            gen_code = True
-        print(self.opt_conv_code)
+        # for i in range(self.output_shape[0]): # output channels
+        #     if gen_code:
+        #         self.opt_conv_code = f"int32_t apply_filter_{i}(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int i, int j, int k, int l) {{\n"
+        #         self.opt_conv_code += f"    int32_t acc = 0;\n"
+        #     for j in range(self.output_shape[1]): # output height
+        #         for k in range(self.output_shape[2]): # output width
+        #             for l in range(self.output_shape[3]): # output depth
+        #                 acc = np.int32(0)
+        #                 # acc += self.__mul_by_filter__(input, i, j, k, l)
+        #                 for m in range(self.filter.shape[1]):
+        #                     for n in range(self.filter.shape[2]):
+        #                         for o in range(self.filter.shape[3]):
+        #                             # feature_map[i][j][k][l] += input[i][m][n][o] * self.filter[i][m][n][o]
+        #                             acc += np.int32(input[i][j + m][k + n][l + o]) * np.int32(self.filter[i][m][n][o])
+        #                             if gen_code:
+        #                                 self.opt_conv_code += f"    acc += input[i][j + {m}][k + {n}][l + {o}] * {self.filter[i][m][n][o]};\n"
+        #                             # print(f"acc += input[i][j + {m}][k + {n}][l + {o}] * filter[{i}][{m}][{n}][{o}]({self.filter[i][m][n][o]}) = {acc}")
+        #                 ## acc = np.sum(np.int32(input[i, j:j+self.filter.shape[1], k:k+self.filter.shape[2], :]) * np.int32(self.filter[i]))
+        #                 if gen_code:
+        #                     self.opt_conv_code += f"    return acc;\n"
+        #                     self.opt_conv_code += "}\n"
+        #                     gen_code = False
+
+        #                 # feature_map[i][j][k][l] += self.bias[i]
+        #                 acc += self.bias[i]
+        #                 # feature_map[i][j][k][l] = multiply_by_quantize_mul(feature_map[i][j][k][l], self.q_mantissa, self.exponent)
+        #                 acc = multiply_by_quantize_mul(np.int64(acc), self.q_mantissa, self.exponent)
+        #                 # feature_map[i][j][k][l] += self.output_zero_point
+        #                 acc += self.output_zero_point
+        #                 # feature_map[i][j][k][l] = np.clip(feature_map[i][j][k][l], -128, 127)
+        #                 acc = np.clip(acc, -128, 127)
+        #                 feature_map[i][j][k][l] = acc
+        #     gen_code = True
+        # print(self.opt_conv_code)
+        line_width = np.get_printoptions()['linewidth']
+        threshold = np.get_printoptions()['threshold']
+        np.set_printoptions(linewidth=np.inf, threshold=np.inf)
+        f1 = feature_map[0,:,:,0]
+        f2 = feature_map[0,:,:,1]
+        # print(f1)
+        # print(f2)
+        np.set_printoptions(linewidth=line_width, threshold=threshold)
+
         return feature_map
     
     def apply_layer(self, input: np.ndarray) -> np.ndarray:
@@ -283,6 +362,14 @@ class MaxPool2D(Layer):
                 for k in range(self.output_shape[2]):
                     for l in range(self.output_shape[3]):
                         maxpooled[i][j][k][l] = np.max(input[i][j*2:j*2+2, k*2:k*2+2, l])
+        line_width = np.get_printoptions()['linewidth']
+        threshold = np.get_printoptions()['threshold']
+        np.set_printoptions(linewidth=np.inf, threshold=np.inf)
+        m1 = maxpooled[0,:,:,0]
+        m2 = maxpooled[0,:,:,1]
+        # print(m1)
+        # print(m2)
+        np.set_printoptions(linewidth=line_width, threshold=threshold)
         return maxpooled
     
     def apply_layer(self, input: np.ndarray) -> np.ndarray:
@@ -318,10 +405,12 @@ class Reshape(Layer):
         if input.shape == self.input_shape:
             return input.reshape(self.output_shape)
         reshaped = np.zeros(self.output_shape, dtype=np.int8)
-        for i in range(self.output_shape[0]):
-            for j in range(self.output_shape[1]):
-                for k in range(self.output_shape[2]):
-                    reshaped[i][j][k] = input[i][j][k]
+        logging.info(f"reshaped shape: {reshaped.shape}")
+        logging.info(f"input shape: {input.shape}")
+        for i in range(self.input_shape[0]):
+            for j in range(self.input_shape[1]):
+                for k in range(self.input_shape[2]):
+                    reshaped[0][i][j][k] = input[0][i][j][k]
         return reshaped
     
     def apply_layer(self, input: np.ndarray) -> np.ndarray:
@@ -359,6 +448,7 @@ class FullyConnected(Layer):
         return result
 
     def fully_connected(self, input: np.ndarray) -> np.ndarray:
+        # print(input)
         dot_product = self.__dot__(input)
         dot_product += self.bias.transpose() # FIXME
         dot_product = multiply_by_quantize_mul(np.int64(dot_product), self.q_mantissa, self.exponent)
@@ -450,7 +540,8 @@ for layer in extracted["layers"]:
     if layer["type"] == "CONV_2D":
         conv2d = Conv2D(layer["input_shape"], layer["output_shape"])
         fixed_point = layer["fixed_point"]
-        conv2d.set_fixed_point(fixed_point["mantissa"], fixed_point["exponent"])
+        # conv2d.set_fixed_point(fixed_point["mantissa"], fixed_point["exponent"])
+        conv2d.set_fixed_points(fixed_point)
         conv2d.set_zero_points(layer["z_input"], layer["z_weight"], layer["z_bias"], layer["z_output"])
         conv2d.set_filter(layer["weights"]["data"], layer["weights"]["dtype"])
         conv2d.set_bias(layer["bias"]["data"], layer["bias"]["dtype"])
@@ -516,10 +607,10 @@ def check_image(model: list[Layer], x_test: np.ndarray, y_test: np.ndarray, inde
 
 
 
-check_image(layers, x_test, y_test, 8)
+check_image(layers, x_test, y_test, 0)
 # predict(layers, x_test[:10], y_test[:10])
 # evaluate(layers, x_test, y_test)
 
 # print(layers[1].generate_code())
-print(layers[1].generate_opt_code())
+# print(layers[1].generate_opt_code())
 # print(layers[4].generate_opt_dot())
