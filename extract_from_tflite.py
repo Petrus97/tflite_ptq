@@ -5,14 +5,25 @@ import json
 from tflite import Model, Operator, Tensor
 
 
-operator_names = {attr_value: attr_name for attr_name, attr_value in vars(tflite.BuiltinOperator).items() if not callable(attr_value) and not attr_name.startswith("__")}
-type_names = {attr_value: attr_name for attr_name, attr_value in vars(tflite.TensorType).items() if not callable(attr_value) and not attr_name.startswith("__")}
+operator_names = {
+    attr_value: attr_name
+    for attr_name, attr_value in vars(tflite.BuiltinOperator).items()
+    if not callable(attr_value) and not attr_name.startswith("__")
+}
+type_names = {
+    attr_value: attr_name
+    for attr_name, attr_value in vars(tflite.TensorType).items()
+    if not callable(attr_value) and not attr_name.startswith("__")
+}
+
 
 def get_operator_name(index):
     return operator_names.get(index, "Unknown")
 
+
 def get_type_name(index):
     return type_names.get(index, "Unknown")
+
 
 def get_tensor(model: tflite.Model, tensor: tflite.Tensor) -> np.ndarray:
     data = model.Buffers(tensor.Buffer()).DataAsNumpy()
@@ -58,33 +69,72 @@ def get_tensor(model: tflite.Model, tensor: tflite.Tensor) -> np.ndarray:
     #     # print(model.Buffers(tensor.Buffer()).DataAsNumpy().astype(np.int32)) # .reshape(shape).astype(data_type))
     #     print(data.view(dtype=data_type).reshape(tensor.ShapeAsNumpy()))
     # else:
-        # print(model.Buffers(tensor.Buffer()).DataAsNumpy().reshape(tensor.ShapeAsNumpy()).astype(data_type))
+    # print(model.Buffers(tensor.Buffer()).DataAsNumpy().reshape(tensor.ShapeAsNumpy()).astype(data_type))
     data = data.view(dtype=data_type).reshape(tensor.ShapeAsNumpy())
     print(data)
     return data
+
 
 def precompute_mantissa(scale: float):
     mantissa, exponent = np.frexp(scale)
     q_mantissa = np.round(mantissa * (1 << 31)).astype(np.int32)
     return q_mantissa, exponent.astype(np.int32)
 
-def conv_bias(filter: np.ndarray, bias: np.ndarray, z_input: int):
+
+def conv_bias(
+    input_shape: np.ndarray, filter: np.ndarray, bias: np.ndarray, z_input: int
+):
+    z_x = np.ones(shape=input_shape, dtype=np.int32) * z_input
     # For now let's suppose that is always 4
-    filter_n = filter.shape[0] # number of filters
-    filter_h = filter.shape[1] # filter height
-    filter_w = filter.shape[2] # filter width
-    filter_c = filter.shape[3] # filter channels
+    filter_n = filter.shape[0]  # number of filters
+    filter_h = filter.shape[1]  # filter height
+    filter_w = filter.shape[2]  # filter width
+    filter_c = filter.shape[3]  # filter channels
+
+    input_batch = input_shape[0]  # batch size
+    input_height = input_shape[1]  # input height
+    input_width = input_shape[2]  # input width
+    input_depth = input_shape[3]  # input depth
+
+    output_batch = input_batch
+    output_height = input_height - filter_h + 1
+    output_width = input_width - filter_w + 1
+    output_chan = filter_n
+
+    # out_array = np.zeros((output_batch, output_height, output_width, output_chan), dtype=np.int32)
+    # print(out_array.shape) # (1, 26, 26, 2)
+    # # (2,3,3,1)
+    # # (1, 28, 28, 1)
+    # for cout in range(output_chan): # 2
+    #     for out_h in range(output_height): # 26
+    #         for out_w in range(output_width): # 26
+    #                 acc = 0
+    #                 for kh in range(filter_h): # 3
+    #                     for kw in range(filter_w): # 3
+    #                         for kc in range(filter_c): #1
+    #                             acc += filter[cout][kh][kw][kc] * z_x[0][out_h + kh][out_w + kw][kc]
+    #                 out_array[0][out_h][out_w][cout] = acc
+
+    # print("bias", bias.shape, bias)
+    # bias = bias.reshape((1,1,1,2))
+    # print("bias", bias.shape, bias)
+    # print("out_array", out_array.shape, out_array)
+
+    # print(bias - out_array)
     q_bias = np.zeros_like(bias)
-    for i in range(filter_n):
+    for cout in range(filter_n):
         acc = 0
-        for j in range(filter_h):
-            for k in range(filter_w):
+        for out_h in range(filter_h):
+            for out_w in range(filter_w):
                 for l in range(filter_c):
-                    acc += filter[i][j][k][l] * z_input
-        q_bias[i] = bias[i] - acc
+                    acc += filter[cout][out_h][out_w][l] * z_input
+        q_bias[cout] = bias[cout] - acc
     return q_bias
 
-def export_fully_connected(op: Operator, tensors_meta: list[Tensor], model: Model) -> dict:
+
+def export_fully_connected(
+    op: Operator, tensors_meta: list[Tensor], model: Model
+) -> dict:
     layer_json = {}
     input_tensors = [tensors_meta[op.Inputs(i)] for i in range(op.InputsLength())]
     output_tensors = [tensors_meta[op.Outputs(i)] for i in range(op.OutputsLength())]
@@ -93,16 +143,23 @@ def export_fully_connected(op: Operator, tensors_meta: list[Tensor], model: Mode
     input_zp = input.Quantization().ZeroPoint(0)
     print(input.ShapeAsNumpy())
     layer_json["input_shape"] = input.ShapeAsNumpy().tolist()
-    print(f"Input layer {op.OpcodeIndex()}. Scale:", input_scale, "Zero Point:",input_zp)
+    print(
+        f"Input layer {op.OpcodeIndex()}. Scale:", input_scale, "Zero Point:", input_zp
+    )
     weights = input_tensors[1]
     weights_scale = weights.Quantization().Scale(0)
     weights_zp = weights.Quantization().ZeroPoint(0)
-    print(f"Weights layer {op.OpcodeIndex()}. Scale:", weights_scale, "Zero Point:",weights_zp)
+    print(
+        f"Weights layer {op.OpcodeIndex()}. Scale:",
+        weights_scale,
+        "Zero Point:",
+        weights_zp,
+    )
     weights_array = get_tensor(model, weights)
     bias = input_tensors[2]
     bias_scale = bias.Quantization().Scale(0)
     bias_zp = bias.Quantization().ZeroPoint(0)
-    print(f"Bias layer {op.OpcodeIndex()}. Scale:", bias_scale, "Zero Point:",bias_zp)
+    print(f"Bias layer {op.OpcodeIndex()}. Scale:", bias_scale, "Zero Point:", bias_zp)
     bias_array = get_tensor(model, bias)
     output = output_tensors[0]
     output_scale = output.Quantization().Scale(0)
@@ -113,11 +170,10 @@ def export_fully_connected(op: Operator, tensors_meta: list[Tensor], model: Mode
     layer_json["s_weight"] = weights_scale
     layer_json["s_bias"] = bias_scale
     layer_json["s_output"] = output_scale
-    q_mantissa, exponent = precompute_mantissa((input_scale*weights_scale)/output_scale)
-    layer_json["fixed_point"] = {
-        "mantissa": int(q_mantissa),
-        "exponent": int(exponent)
-    }
+    q_mantissa, exponent = precompute_mantissa(
+        (input_scale * weights_scale) / output_scale
+    )
+    layer_json["fixed_point"] = {"mantissa": int(q_mantissa), "exponent": int(exponent)}
     # Save zero points
     layer_json["z_input"] = input_zp
     layer_json["z_weight"] = weights_zp
@@ -130,15 +186,20 @@ def export_fully_connected(op: Operator, tensors_meta: list[Tensor], model: Mode
     layer_json["weights"]["data"] = weights_array.tolist()
     # Bias array
     ### Precompute part qb - (Zin @ qw)
-    z_in_arr = (np.ones(shape=input.ShapeAsNumpy(), dtype=np.int32) * input_zp).transpose()
+    z_in_arr = (
+        np.ones(shape=input.ShapeAsNumpy(), dtype=np.int32) * input_zp
+    ).transpose()
     print(z_in_arr.dtype)
     z_in_dot_qw = weights_array @ z_in_arr
-    q_bias = bias_array.reshape(z_in_dot_qw.shape)  - z_in_dot_qw # - (weights_array @ (np.ones(shape=input.ShapeAsNumpy()) * input_zp).transpose())
+    q_bias = (
+        bias_array.reshape(z_in_dot_qw.shape) - z_in_dot_qw
+    )  # - (weights_array @ (np.ones(shape=input.ShapeAsNumpy()) * input_zp).transpose())
     layer_json["bias"] = {}
     layer_json["bias"]["dtype"] = str(q_bias.dtype)
     layer_json["bias"]["shape"] = q_bias.shape
     layer_json["bias"]["data"] = q_bias.tolist()
     return layer_json
+
 
 def export_conv2d(op: Operator, tensors_meta: list[Tensor], model: Model) -> dict:
     layer_json = {}
@@ -150,16 +211,28 @@ def export_conv2d(op: Operator, tensors_meta: list[Tensor], model: Model) -> dic
     input_zp = input.Quantization().ZeroPoint(0)
     print(input.ShapeAsNumpy())
     layer_json["input_shape"] = input.ShapeAsNumpy().tolist()
-    print(f"Input layer {op.OpcodeIndex()}. Scale:", input_scale, "Zero Point:",input_zp)
+    print(
+        f"Input layer {op.OpcodeIndex()}. Scale:", input_scale, "Zero Point:", input_zp
+    )
     filter = input_tensors[1]
-    filter_scale = filter.Quantization().Scale(0)
+    # filter_scale = filter.Quantization().Scale(0)
+    filter_scales = [
+        filter.Quantization().Scale(i)
+        for i in range(filter.Quantization().ScaleLength())
+    ]
+    # print("AAAAAAAAAAA", filter_scales)
     filter_zp = filter.Quantization().ZeroPoint(0)
-    print(f"Filter/Kernel layer {op.OpcodeIndex()}. Scale:", filter_scale, "Zero Point:",filter_zp)
+    print(
+        f"Filter/Kernel layer {op.OpcodeIndex()}. Scale:",
+        filter_scales,
+        "Zero Point:",
+        filter_zp,
+    )
     filter_array = get_tensor(model, filter)
     bias = input_tensors[2]
     bias_scale = bias.Quantization().Scale(0)
     bias_zp = bias.Quantization().ZeroPoint(0)
-    print(f"Bias layer {op.OpcodeIndex()}. Scale:", bias_scale, "Zero Point:",bias_zp)
+    print(f"Bias layer {op.OpcodeIndex()}. Scale:", bias_scale, "Zero Point:", bias_zp)
     bias_array = get_tensor(model, bias)
     output = output_tensors[0]
     output_scale = output.Quantization().Scale(0)
@@ -167,14 +240,21 @@ def export_conv2d(op: Operator, tensors_meta: list[Tensor], model: Model) -> dic
     layer_json["output_shape"] = output.ShapeAsNumpy().tolist()
     # Save scaling factors
     layer_json["s_input"] = input_scale
-    layer_json["s_weight"] = filter_scale
+    layer_json["s_weight"] = filter_scales
     layer_json["s_bias"] = bias_scale
     layer_json["s_output"] = output_scale
-    q_mantissa, exponent = precompute_mantissa((input_scale*filter_scale)/output_scale)
-    layer_json["fixed_point"] = {
-        "mantissa": int(q_mantissa),
-        "exponent": int(exponent)
-    }
+    layer_json["fixed_point"] = [
+        {"mantissa": int(q_mantissa), "exponent": int(exponent)}
+        for q_mantissa, exponent in [
+            precompute_mantissa((input_scale * filter_scale) / output_scale)
+            for filter_scale in filter_scales
+        ]
+    ]
+    # q_mantissa, exponent = precompute_mantissa((input_scale*filter_scale)/output_scale)
+    # layer_json["fixed_point"] = {
+    #     "mantissa": int(q_mantissa),
+    #     "exponent": int(exponent)
+    # }
     # Save zero points
     layer_json["z_input"] = input_zp
     layer_json["z_weight"] = filter_zp
@@ -187,12 +267,13 @@ def export_conv2d(op: Operator, tensors_meta: list[Tensor], model: Model) -> dic
     layer_json["weights"]["data"] = filter_array.tolist()
     # Bias array
     ### Precompute part qb - conv(qw, Zin)
-    q_bias = conv_bias(filter_array, bias_array, input_zp)
+    q_bias = conv_bias(input.ShapeAsNumpy(), filter_array, bias_array, input_zp)
     layer_json["bias"] = {}
     layer_json["bias"]["dtype"] = str(q_bias.dtype)
     layer_json["bias"]["shape"] = q_bias.shape
     layer_json["bias"]["data"] = q_bias.tolist()
     return layer_json
+
 
 def add_shapes(op: Operator, tensors_meta: list[Tensor]) -> dict:
     input_tensors = [tensors_meta[op.Inputs(i)] for i in range(op.InputsLength())]
@@ -203,16 +284,16 @@ def add_shapes(op: Operator, tensors_meta: list[Tensor]) -> dict:
         "input_shape": input.ShapeAsNumpy().tolist(),
         "z_input": input.Quantization().ZeroPoint(0),
         "s_input": input.Quantization().Scale(0),
-        "output_shape": output.ShapeAsNumpy().tolist()
+        "output_shape": output.ShapeAsNumpy().tolist(),
     }
 
 
 def import_model(model_name: str = "int_model.tflite"):
     cur_dir = os.path.dirname(os.path.abspath(__file__))
-    tflm_dir = os.path.abspath(cur_dir + '/models/lite/')
+    tflm_dir = os.path.abspath(cur_dir + "/models/lite/")
     tflm_name = model_name
     path = os.path.join(tflm_dir, tflm_name)
-    with open(path, 'rb') as f:
+    with open(path, "rb") as f:
         buf = f.read()
         model = tflite.Model.GetRootAs(buf, 0)
         print(model)
@@ -232,12 +313,15 @@ def import_model(model_name: str = "int_model.tflite"):
         for i in range(subgraph.OperatorsLength()):
             layer_json = {}
             op = subgraph.Operators(i)
-            print(op.OpcodeIndex(), get_operator_name(opcodes[op.OpcodeIndex()].BuiltinCode()))
+            print(
+                op.OpcodeIndex(),
+                get_operator_name(opcodes[op.OpcodeIndex()].BuiltinCode()),
+            )
             # input_tensors = [tensors[op.Inputs(i)] for i in range(op.InputsLength())]
             # output_tensors = [tensors[op.Outputs(i)] for i in range(op.OutputsLength())]
             # print(output_tensors)
             op_name = get_operator_name(opcodes[op.OpcodeIndex()].BuiltinCode())
-            if op_name == 'FULLY_CONNECTED':
+            if op_name == "FULLY_CONNECTED":
                 layer_json["type"] = op_name
                 exported = export_fully_connected(op, tensors, model)
                 layer_json.update(exported)
@@ -259,9 +343,6 @@ def import_model(model_name: str = "int_model.tflite"):
             f.write(json.dumps(json_ser, indent=4))
 
 
-
-
-
-if __name__ == '__main__':
-    import_model(model_name="int_cnn1d_conv_model.tflite")
+if __name__ == "__main__":
+    import_model(model_name="int_cnn2_conv_model.tflite")
     # import_model()
