@@ -73,6 +73,7 @@ class Conv2D(Layer):
     def __init__(self, input_shape: tuple, output_shape: tuple):
         self.input_shape = input_shape
         self.output_shape = output_shape
+        self.code = ""
     
     def set_fixed_point(self, mantissa: np.int32, exponent: np.int32):
         self.q_mantissa = mantissa
@@ -126,6 +127,13 @@ class Conv2D(Layer):
         filter_height = filter.shape[1]
         filter_width = filter.shape[2]
         filter_depth = filter.shape[3]
+        # Code generation
+        self.opt_conv_code = ""
+        self.opt_conv_code += f"int32_t apply_filter_{ch_idx}(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int out_h, int out_w, int ch_idx) " + "{\n"
+        # self.opt_conv_code = f"int32_t apply_filter_{ch_idx}(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int ch_idx, int8_t feature_map[{self.output_shape[0]}][{self.output_shape[1]}][{self.output_shape[2]}][{self.output_shape[3]}]) " + "{\n"
+        # self.opt_conv_code += f"    for(int out_h = 0; out_h < {out_height}; out_h++)" + "{\n"
+        # self.opt_conv_code += f"        for(int out_w = 0; out_w < {out_width}; out_w++)" + "{\n"
+        # self.opt_conv_code += f"            int32_t acc = 0;\n"
         for out_h in range(out_height):
             for out_w in range(out_width):
                 acc = np.int32(0)
@@ -138,6 +146,31 @@ class Conv2D(Layer):
                 acc += output_zero_point
                 acc = np.clip(acc, -128, 127)
                 feature_map[0][out_h][out_w][ch_idx] = acc
+        for cin in range(filter_depth):
+            for f_h in range(filter_height):
+                for f_w in range(filter_width):
+                    # self.opt_conv_code += f"    acc += input[0][out_h + {f_h}][out_w + {f_w}][{cin}] * {filter[ch_idx][f_h][f_w][cin]}; // filter[{ch_idx}][{f_h}][{f_w}][{cin}];\n"
+                    if(filter[ch_idx][f_h][f_w][cin] == 0):
+                        continue
+                    elif(filter[ch_idx][f_h][f_w][cin] == 1):
+                        self.opt_conv_code += f"    acc += input[0][out_h + {f_h}][out_w + {f_w}][{cin}];\n"
+                    elif(filter[ch_idx][f_h][f_w][cin] < 0):
+                        self.opt_conv_code += f"    acc += multiply_n{abs(filter[ch_idx][f_h][f_w][cin])}(input[0][out_h + {f_h}][out_w + {f_w}][{cin}]);\n"
+                    else:
+                        self.opt_conv_code += f"    acc += multiply_{filter[ch_idx][f_h][f_w][cin]}(input[0][out_h + {f_h}][out_w + {f_w}][{cin}]);\n"
+
+        self.opt_conv_code += f"    return acc;\n"
+        self.opt_conv_code += "}\n"
+        self.code += self.opt_conv_code
+        # self.opt_conv_code += f"            acc += bias[{ch_idx}];\n"
+        # self.opt_conv_code += f"            acc = multiply_by_quantize_mul(acc, {fixed_point['mantissa']}, {fixed_point['exponent']});\n"
+        # self.opt_conv_code += f"            acc += output_zero_point;\n"
+        # self.opt_conv_code += f"            acc = acc > 127 ? 127 : acc;\n"
+        # self.opt_conv_code += f"            acc = acc < -128 ? -128 : acc;\n"
+        # self.opt_conv_code += f"            feature_map[0][out_h][out_w][{ch_idx}] = acc;\n"
+        # self.opt_conv_code += "        }\n"
+        # self.opt_conv_code += "    }\n"
+        # self.opt_conv_code += "}\n"
         return feature_map
 
     def conv2d(self, input: np.ndarray) -> np.ndarray:
@@ -177,53 +210,7 @@ class Conv2D(Layer):
         # Since we asserted that we have a single batch size, we can iterate over the output channels
         for cout in range(output_channels):
             feature_map = self.conv_by_filter(input, self.filter, cout, self.fixed_points[cout], self.output_zero_point, feature_map)
-            # for out_h in range(output_height):
-            #     for out_w in range(output_width):
-            #         acc = np.int32(0)
-            #         for cin in range(filter_depth):
-            #             for f_h in range(filter_height):
-            #                 for f_w in range(filter_width):
-            #                     acc += np.int32(input[0][out_h+f_h][out_w+f_w][cin]) * np.int32(self.filter[cout][f_h][f_w][cin])
-            #         acc += self.bias[cout]
-            #         acc = multiply_by_quantize_mul(np.int64(acc), self.fixed_points[cout]["mantissa"], self.fixed_points[cout]["exponent"])
-            #         acc += self.output_zero_point
-            #         acc = np.clip(acc, -128, 127)
-            #         feature_map[0][out_h][out_w][cout] = acc
 
-        # for i in range(self.output_shape[0]): # output channels
-        #     if gen_code:
-        #         self.opt_conv_code = f"int32_t apply_filter_{i}(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int i, int j, int k, int l) {{\n"
-        #         self.opt_conv_code += f"    int32_t acc = 0;\n"
-        #     for j in range(self.output_shape[1]): # output height
-        #         for k in range(self.output_shape[2]): # output width
-        #             for l in range(self.output_shape[3]): # output depth
-        #                 acc = np.int32(0)
-        #                 # acc += self.__mul_by_filter__(input, i, j, k, l)
-        #                 for m in range(self.filter.shape[1]):
-        #                     for n in range(self.filter.shape[2]):
-        #                         for o in range(self.filter.shape[3]):
-        #                             # feature_map[i][j][k][l] += input[i][m][n][o] * self.filter[i][m][n][o]
-        #                             acc += np.int32(input[i][j + m][k + n][l + o]) * np.int32(self.filter[i][m][n][o])
-        #                             if gen_code:
-        #                                 self.opt_conv_code += f"    acc += input[i][j + {m}][k + {n}][l + {o}] * {self.filter[i][m][n][o]};\n"
-        #                             # print(f"acc += input[i][j + {m}][k + {n}][l + {o}] * filter[{i}][{m}][{n}][{o}]({self.filter[i][m][n][o]}) = {acc}")
-        #                 ## acc = np.sum(np.int32(input[i, j:j+self.filter.shape[1], k:k+self.filter.shape[2], :]) * np.int32(self.filter[i]))
-        #                 if gen_code:
-        #                     self.opt_conv_code += f"    return acc;\n"
-        #                     self.opt_conv_code += "}\n"
-        #                     gen_code = False
-
-        #                 # feature_map[i][j][k][l] += self.bias[i]
-        #                 acc += self.bias[i]
-        #                 # feature_map[i][j][k][l] = multiply_by_quantize_mul(feature_map[i][j][k][l], self.q_mantissa, self.exponent)
-        #                 acc = multiply_by_quantize_mul(np.int64(acc), self.q_mantissa, self.exponent)
-        #                 # feature_map[i][j][k][l] += self.output_zero_point
-        #                 acc += self.output_zero_point
-        #                 # feature_map[i][j][k][l] = np.clip(feature_map[i][j][k][l], -128, 127)
-        #                 acc = np.clip(acc, -128, 127)
-        #                 feature_map[i][j][k][l] = acc
-        #     gen_code = True
-        # print(self.opt_conv_code)
         line_width = np.get_printoptions()['linewidth']
         threshold = np.get_printoptions()['threshold']
         np.set_printoptions(linewidth=np.inf, threshold=np.inf)
@@ -232,7 +219,7 @@ class Conv2D(Layer):
         # print(f1)
         # print(f2)
         np.set_printoptions(linewidth=line_width, threshold=threshold)
-
+        # print(self.code)
         return feature_map
     
     def apply_layer(self, input: np.ndarray) -> np.ndarray:
@@ -291,7 +278,7 @@ class Conv2D(Layer):
         return code
 
     def generate_opt_code(self):
-        code = self.opt_conv_code
+        code = self.code
         code += f"void conv2d(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int8_t output[{self.output_shape[0]}][{self.output_shape[1]}][{self.output_shape[2]}][{self.output_shape[3]}])" + "{\n"
         code += f"    int8_t filter[{self.filter.shape[0]}][{self.filter.shape[1]}][{self.filter.shape[2]}][{self.filter.shape[3]}] = " + "{\n"
         for i in range(self.filter.shape[0]):
@@ -314,39 +301,25 @@ class Conv2D(Layer):
         code += f"    const int8_t input_zero_point = {self.input_zero_point};\n"
         code += f"    const int8_t filter_zero_point = {self.filter_zero_point};\n"
         code += f"    const int8_t bias_zero_point = {self.bias_zero_point};\n"
-        code += f"    const int32_t q_mantissa = {self.q_mantissa};\n"
-        code += f"    const int32_t exponent = {self.exponent};\n"
-        for i in range(self.output_shape[0]):
-            code += f"    for(int j = 0; j < {self.output_shape[1]}; j++)" + "{\n"
-            code += f"        for(int k = 0; k < {self.output_shape[2]}; k++)" + "{\n"
-            code += f"            for(int l = 0; l < {self.output_shape[3]}; l++)" + "{\n"
-            code += f"                int32_t acc = apply_filter_{i}(input, {i}, j, k, l);\n"
-            code += f"                acc += bias[{i}];\n"
-            code += f"                acc = multiply_by_quantize_mul(acc, q_mantissa, exponent);\n"
-            code += f"                acc += output_zero_point;\n"
-            code += f"                acc = acc > 127 ? 127 : acc;\n"
-            code += f"                acc = acc < -128 ? -128 : acc;\n"
-            code += f"                output[{i}][j][k][l] = acc;\n"
-            code += "            }\n"
+        code += f"    const int32_t fixed_points = " + "{\n"
+        for i in range(self.output_shape[3]):
+            code += f"        {{ {self.fixed_points[i]['mantissa']}, {self.fixed_points[i]['exponent']} }},\n"
+        code += "    };\n"
+        # code += f"    const int32_t q_mantissa = {self.q_mantissa};\n"
+        # code += f"    const int32_t exponent = {self.exponent};\n"
+        for i in range(self.output_shape[3]):
+            code += f"    for(int out_h = 0; out_h < {self.output_shape[1]}; out_h++)" + "{\n"
+            code += f"        for(int out_w = 0; out_w < {self.output_shape[2]}; out_w++)" + "{\n"
+            code += f"            int32_t acc = apply_filter_{i}(input, out_h, out_w, {i});\n"
+            code += f"            acc += bias[{i}];\n"
+            code += f"            acc = multiply_by_quantize_mul(acc, fixed_points[{i}][0], fixed_points[{i}][1]);\n"
+            code += f"            acc += output_zero_point;\n"
+            code += f"            acc = acc > 127 ? 127 : acc;\n"
+            code += f"            acc = acc < -128 ? -128 : acc;\n"
+            code += f"            output[0][out_h][out_w][{i}] = acc;\n"
             code += "        }\n"
             code += "    }\n"
         code += "}\n"
-        # code += f"    for(int i = 0; i < {self.output_shape[0]}; i++)" + "{\n"
-        # code += f"        for(int j = 0; j < {self.output_shape[1]}; j++)" + "{\n"
-        # code += f"            for(int k = 0; k < {self.output_shape[2]}; k++)" + "{\n"
-        # code += f"                for(int l = 0; l < {self.output_shape[3]}; l++)" + "{\n"
-        # code += f"                    int32_t acc = apply_filter_{i}(input, i, j, k, l);\n"
-        # code += f"                    acc += bias[i];\n"
-        # code += f"                    acc = multiply_by_quantize_mul(acc, q_mantissa, exponent);\n"
-        # code += f"                    acc += output_zero_point;\n"
-        # code += f"                    acc = acc > 127 ? 127 : acc;\n"
-        # code += f"                    acc = acc < -128 ? -128 : acc;\n"
-        # code += f"                    output[i][j][k][l] = acc;\n"
-        # code += "                }\n"
-        # code += "            }\n"
-        # code += "        }\n"
-        # code += "    }\n"
-        # code += "}\n"
         return code
 
 
@@ -612,5 +585,5 @@ check_image(layers, x_test, y_test, 0)
 # evaluate(layers, x_test, y_test)
 
 # print(layers[1].generate_code())
-# print(layers[1].generate_opt_code())
+print(layers[1].generate_opt_code())
 # print(layers[4].generate_opt_dot())
