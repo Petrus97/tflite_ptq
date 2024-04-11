@@ -223,8 +223,8 @@ class Conv2D(Layer):
         np.set_printoptions(linewidth=np.inf, threshold=np.inf)
         f1 = feature_map[0,:,:,0]
         f2 = feature_map[0,:,:,1]
-        print(f1)
-        print(f2)
+        # print(f1)
+        # print(f2)
         np.set_printoptions(linewidth=line_width, threshold=threshold)
         # print(self.code)
         return feature_map
@@ -516,6 +516,51 @@ class FullyConnected(Layer):
         return self.generate_code(opt=True)
 
 
+class Model:
+    def __init__(self):
+        self.layers = []
+    
+    def add_layer(self, layer: Layer):
+        self.layers.append(layer)
+    
+    def predict(self, x_test: np.ndarray, y_test: np.ndarray):
+        table = PrettyTable()
+        table.field_names = ["Predicted", "Original", "Confidence", "Match"]
+        for i in range(10):
+            predictions = x_test[i]
+            predictions = predictions.reshape(1, 28, 28, 1)
+            for layer in self.layers:
+                predictions = layer.apply_layer(predictions)
+            table.add_row(
+                [
+                    np.argmax(predictions),
+                    y_test[i],
+                    np.max(predictions),
+                    "✅" if np.argmax(predictions) == y_test[i] else "❌",
+                ]
+            )
+        print(table)
+    
+    def evaluate(self, x_test: np.ndarray, y_test: np.ndarray):
+        correct = 0
+        for i in range(len(x_test)):
+            predictions = x_test[i]
+            predictions = predictions.reshape(1, 28, 28, 1)
+            for layer in self.layers:
+                predictions = layer.apply_layer(predictions)
+            if np.argmax(predictions) == y_test[i]:
+                correct += 1
+        print("Accuracy:", correct / len(x_test))
+
+    def check_image(self, x_test: np.ndarray, y_test: np.ndarray, index: int):
+        predictions = x_test[index]
+        predictions = predictions.reshape(1, 28, 28, 1)
+        for layer in self.layers:
+            predictions = layer.apply_layer(predictions)
+        print(predictions)
+        print("Predicted:", np.argmax(predictions))
+        print("Original:", y_test[index])
+
 # Load the data JSON
 extr_json = open("extracted.json", "r").read()
 extracted = json.loads(extr_json)
@@ -524,7 +569,7 @@ mnist_train, mnist_test = mnist.load_data()
 (x_train, y_train) = mnist_train
 (x_test, y_test) = mnist_test
 
-layers: list[Layer] = []
+model = Model()
 
 for layer in extracted["layers"]:
     if layer["type"] == "CONV_2D":
@@ -535,16 +580,20 @@ for layer in extracted["layers"]:
         conv2d.set_zero_points(layer["z_input"], layer["z_weight"], layer["z_bias"], layer["z_output"])
         conv2d.set_filter(layer["weights"]["data"], layer["weights"]["dtype"])
         conv2d.set_bias(layer["bias"]["data"], layer["bias"]["dtype"])
-        layers.append(conv2d)
+        # layers.append(conv2d)
+        model.add_layer(conv2d)
     elif layer["type"] == "MAX_POOL_2D":
         maxpool2d = MaxPool2D(layer["input_shape"], layer["output_shape"])
-        layers.append(maxpool2d)
+        # layers.append(maxpool2d)
+        model.add_layer(maxpool2d)
     elif layer["type"] == "QUANTIZE":
         quantize = Quantize(layer["input_shape"], Z_input=np.int8(-128), S_input=layer["s_input"])
-        layers.append(quantize)
+        # layers.append(quantize)
+        model.add_layer(quantize)
     elif layer["type"] == "RESHAPE":
         reshape = Reshape(layer["input_shape"], layer["output_shape"])
-        layers.append(reshape)
+        # layers.append(reshape)
+        model.add_layer(reshape)
     elif layer["type"] == "FULLY_CONNECTED":
         fc = FullyConnected(layer["input_shape"], layer["output_shape"])
         fixed_point = layer["fixed_point"]
@@ -552,7 +601,8 @@ for layer in extracted["layers"]:
         fc.set_zero_points(layer["z_input"], layer["z_weight"], layer["z_bias"], layer["z_output"])
         fc.set_weights(layer["weights"]["data"], layer["weights"]["dtype"])
         fc.set_bias(layer["bias"]["data"], layer["bias"]["dtype"])
-        layers.append(fc)
+        # layers.append(fc)
+        model.add_layer(fc)
     else:
         print("Unknown layer type:", layer["type"])
 
@@ -597,7 +647,9 @@ def check_image(model: list[Layer], x_test: np.ndarray, y_test: np.ndarray, inde
 
 
 
-check_image(layers, x_test, y_test, 8)
+# check_image(layers, x_test, y_test, 8)
+model.check_image(x_test, y_test, 8)
+model.predict(x_test, y_test)
 # predict(layers, x_test[:10], y_test[:10])
 # evaluate(layers, x_test, y_test)
 
@@ -605,9 +657,9 @@ check_image(layers, x_test, y_test, 8)
 # code += "#include <stdint.h>\n"
 # code += "#include <stdio.h>\n"
 # code += "#include <stdlib.h>\n"
-code = ""
-for layer in layers:
-    code += layer.generate_opt_code()
-    code += "\n"
-with open("test_generated/src/model_opt.c", "w") as f:
-    f.write(code)
+# code = ""
+# for layer in layers:
+#     code += layer.generate_opt_code()
+#     code += "\n"
+# with open("test_generated/src/model_opt.c", "w") as f:
+#    f.write(code)
