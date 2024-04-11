@@ -1,5 +1,5 @@
-#ifndef MODEL_H
-#define MODEL_H
+#ifndef MODEL_OPT_H
+#define MODEL_OPT_H
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

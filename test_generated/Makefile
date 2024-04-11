@@ -21,7 +21,19 @@ OBJ_DIR=./objs
 SRCS=$(wildcard $(SRC_DIR)/*.c)
 OBJS=$(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SRCS))
 
-BIN = a.out # <--- modify the binary name
+ifdef OPT
+SRCS := $(filter-out $(SRC_DIR)/model.c, $(SRCS))
+else
+SRCS := $(filter-out $(SRC_DIR)/model_opt.c, $(SRCS))
+endif
+
+
+ifdef OPT
+BIN = a.out.opt
+else
+BIN = a.out
+endif
+
 
 
 CFLAGS += -DDEBUG=1 -Wno-unused-variable
@@ -45,4 +57,4 @@ prebuild:
 	mkdir -p $(OBJ_DIR)
 
 clean:
-	rm -rf $(BIN) $(OBJ_DIR)/*
+	rm -rf $(BIN)* $(OBJ_DIR)/*

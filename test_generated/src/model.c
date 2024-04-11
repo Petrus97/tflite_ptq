@@ -2,7 +2,7 @@
 
 void quantize(byte_t* image){
     for(size_t i = 0; i < 784; i++){
-        image->i8[i] = image->u8[i] + -128;
+        image->i8[i] = image->u8[i] + (-128);
     }
 }
 
@@ -40,14 +40,13 @@ void conv2d(int8_t input[1][28][28][1], int8_t output[1][26][26][2]){
                             acc += input[0][out_h + f_h][out_w + f_w][f_d] * filter[cout][f_h][f_w][f_d];
                         }
                     }
-                }
+                 }
                 acc += bias[cout];
                 acc = multiply_by_quantize_mul(acc, fixed_points[cout][0], fixed_points[cout][1]);
                 acc += output_zero_point;
                 acc = acc > 127 ? 127 : acc;
                 acc = acc < -128 ? -128 : acc;
                 output[0][out_h][out_w][cout] = acc;
-            
             }
         }
     }

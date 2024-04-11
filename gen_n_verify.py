@@ -135,7 +135,7 @@ class Conv2D(Layer):
         filter_depth = filter.shape[3]
         # Code generation
         self.opt_conv_code = ""
-        self.opt_conv_code += f"int32_t apply_filter_{ch_idx}(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int out_h, int out_w, int ch_idx) " + "{\n"
+        self.opt_conv_code += f"static int32_t apply_filter_{ch_idx}(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int out_h, int out_w, int ch_idx) " + "{\n"
         self.opt_conv_code += f"    int32_t acc = 0;\n"
         # self.opt_conv_code = f"int32_t apply_filter_{ch_idx}(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int ch_idx, int8_t feature_map[{self.output_shape[0]}][{self.output_shape[1]}][{self.output_shape[2]}][{self.output_shape[3]}]) " + "{\n"
         # self.opt_conv_code += f"    for(int out_h = 0; out_h < {out_height}; out_h++)" + "{\n"
@@ -257,8 +257,8 @@ class Conv2D(Layer):
         code += f"    const int8_t input_zero_point = {self.input_zero_point};\n"
         code += f"    const int8_t filter_zero_point = {self.filter_zero_point};\n"
         code += f"    const int8_t bias_zero_point = {self.bias_zero_point};\n"
-        code += f"    const int32_t fixed_points[{self.filter.shape[3]}][2] = " + "{\n"
-        for i in range(self.output_shape[0]):
+        code += f"    const int32_t fixed_points[{self.filter.shape[0]}][2] = " + "{\n"
+        for i in range(self.filter.shape[0]):
             code += f"        {{ {self.fixed_points[i]['mantissa']}, {self.fixed_points[i]['exponent']} }},\n"
         code += "    };\n"
         code += f"    for(int cout = 0; cout < {self.output_shape[3]}; cout++)" + "{\n"
@@ -308,8 +308,8 @@ class Conv2D(Layer):
         code += f"    const int8_t input_zero_point = {self.input_zero_point};\n"
         code += f"    const int8_t filter_zero_point = {self.filter_zero_point};\n"
         code += f"    const int8_t bias_zero_point = {self.bias_zero_point};\n"
-        code += f"    const int32_t fixed_points[{self.filter.shape[3]}][2] = " + "{\n"
-        for i in range(self.output_shape[0]):
+        code += f"    const int32_t fixed_points[{self.filter.shape[0]}][2] = " + "{\n"
+        for i in range(self.filter.shape[0]):
             code += f"        {{ {self.fixed_points[i]['mantissa']}, {self.fixed_points[i]['exponent']} }},\n"
         code += "    };\n"
         # code += f"    const int32_t q_mantissa = {self.q_mantissa};\n"
@@ -519,6 +519,8 @@ class FullyConnected(Layer):
 class Model:
     def __init__(self):
         self.layers = []
+        self.source = ""
+        self.header = ""
     
     def add_layer(self, layer: Layer):
         self.layers.append(layer)
@@ -560,6 +562,62 @@ class Model:
         print(predictions)
         print("Predicted:", np.argmax(predictions))
         print("Original:", y_test[index])
+
+    def generate_header(self, opt: bool = False):
+        if opt == False:
+            self.header = "#ifndef MODEL_H\n#define MODEL_H\n"
+        else:
+            self.header = "#ifndef MODEL_OPT_H\n#define MODEL_OPT_H\n"
+        self.header += "#include <stdint.h>\n"
+        self.header += "#include <stdio.h>\n"
+        self.header += "#include <stdlib.h>\n\n"
+        self.header += "typedef union byte {\n"
+        for layer in self.layers:
+            if isinstance(layer, Quantize):
+                self.header += "    uint8_t u8[{}];\n".format(layer.input_shape[0] * layer.input_shape[1] * layer.input_shape[2] * layer.input_shape[3])
+                self.header += "    int8_t i8[{}];\n".format(layer.input_shape[0] * layer.input_shape[1] * layer.input_shape[2] * layer.input_shape[3])
+                break
+        self.header += "} byte_t;\n\n"
+        for layer in self.layers:
+                if isinstance(layer, Conv2D):
+                    self.header += f"void conv2d(int8_t input[{layer.input_shape[0]}][{layer.input_shape[1]}][{layer.input_shape[2]}][{layer.input_shape[3]}], int8_t output[{layer.output_shape[0]}][{layer.output_shape[1]}][{layer.output_shape[2]}][{layer.output_shape[3]}]);\n"
+                elif isinstance(layer, MaxPool2D):
+                    self.header += f"void max_pool2d(int8_t input[{layer.input_shape[0]}][{layer.input_shape[1]}][{layer.input_shape[2]}][{layer.input_shape[3]}], int8_t output[{layer.output_shape[0]}][{layer.output_shape[1]}][{layer.output_shape[2]}][{layer.output_shape[3]}]);\n"
+                elif isinstance(layer, Quantize):
+                    self.header += "void quantize(byte_t* image);\n"
+                elif isinstance(layer, FullyConnected):
+                    self.header += f"void fully_connected(int8_t input[{layer.input_shape[0]}][{layer.input_shape[1]}], int8_t output[{layer.output_shape[1]}]);\n"
+                else:
+                    continue
+        self.header += "\n#endif\n"
+
+
+    def generate_code(self):
+        self.generate_header()
+        self.source = "#include \"model.h\"\n\n"
+        for layer in self.layers:
+            self.source += layer.generate_code()
+            self.source += "\n"
+        # Save model.h
+        with open("test_generated/include/model.h", "w") as f:
+            f.write(self.header)
+        # Save model.c
+        with open("test_generated/src/model.c", "w") as f:
+            f.write(self.source)
+    
+    def generate_opt_code(self):
+        self.generate_header(opt=True)
+        self.source = "#include \"model_opt.h\"\n"
+        self.source += "#include \"multiply.h\"\n\n"
+        for layer in self.layers:
+            self.source += layer.generate_opt_code()
+            self.source += "\n"
+        # Save model_opt.h
+        with open("test_generated/include/model_opt.h", "w") as f:
+            f.write(self.header)
+        # Save model.c
+        with open("test_generated/src/model_opt.c", "w") as f:
+            f.write(self.source)
 
 # Load the data JSON
 extr_json = open("extracted.json", "r").read()
@@ -648,8 +706,7 @@ def check_image(model: list[Layer], x_test: np.ndarray, y_test: np.ndarray, inde
 
 
 # check_image(layers, x_test, y_test, 8)
-model.check_image(x_test, y_test, 8)
-model.predict(x_test, y_test)
+# model.evaluate(x_test, y_test)
 # predict(layers, x_test[:10], y_test[:10])
 # evaluate(layers, x_test, y_test)
 
@@ -663,3 +720,6 @@ model.predict(x_test, y_test)
 #     code += "\n"
 # with open("test_generated/src/model_opt.c", "w") as f:
 #    f.write(code)
+model.check_image(x_test, y_test, 8) # Needed to generate filter code
+model.generate_code()
+model.generate_opt_code()
