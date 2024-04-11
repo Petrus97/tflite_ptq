@@ -36,9 +36,13 @@ class Layer:
     def generate_code(self):
         return ""
 
+    def generate_opt_code(self):
+        return ""
+
 class Quantize(Layer):
-    def __init__(self, Z_input: np.int8 = np.int8(0), S_input: np.float64 = np.float64(0)):
-        self.array: np.ndarray = np.array([])
+    def __init__(self, input_shape, Z_input: np.int8 = np.int8(0), S_input: np.float64 = np.float64(0)):
+        self.array: np.ndarray = np.ndarray([])
+        self.input_shape = input_shape
         self.Z_input = Z_input
         self.S_input = S_input
 
@@ -68,6 +72,30 @@ class Quantize(Layer):
 
     def apply_layer(self, array: np.ndarray):
         return self.quantize(array)
+    
+    def generate_code(self):
+        input_dim = 0
+        for shape in self.input_shape:
+            input_dim += shape
+        code = "typedef union byte {\n"
+        code += f"    uint8_t u8[{input_dim}];\n"
+        code += f"    int8_t i8[{input_dim}];\n"
+        code += "} byte_t;\n\n"
+        code += "void quantize(byte_t* image)" + "{\n"
+        code += "    for(size_t i = 0; i < 784; i++)" + "{\n"
+        code += f"        image->i8[i] = image->u8[i] + ({self.Z_input});\n"
+        code += "    }\n"
+        code += "}\n\n"
+        code += "int32_t multiply_by_quantize_mul(int64_t acc, int32_t q_mantissa, int32_t exp)" + "{\n"
+        code += "    const int32_t reduced_mantissa = q_mantissa < 0x7FFF0000 ? ((q_mantissa + (1 << 15)) >> 16) : 0x7FFF;\n"
+        code += "    const int64_t total_shifts = 15 - exp;\n"
+        code += "    const int64_t round = (int64_t)(1) << (total_shifts - 1);\n"
+        code += "    acc = acc * (int64_t)reduced_mantissa;\n"
+        code += "    acc = acc + round;\n"
+        code += "    int32_t result = acc >> total_shifts;\n"
+        code += "    return result;\n"
+        code += "}\n"
+        return code
 
 class Conv2D(Layer):
     def __init__(self, input_shape: tuple, output_shape: tuple):
@@ -94,32 +122,6 @@ class Conv2D(Layer):
     def set_bias(self, bias: list, dtype: str):
         self.bias = np.asarray(bias, dtype=to_np_dtype(dtype))
 
-    def __mul_by_filter__(self, input: np.ndarray, i,j,k,l) -> np.int32:
-        acc = np.int32(0)
-        match i:
-            case 0:
-                acc += np.int32(input[i][j][k][l]) * np.int32(self.filter[i][0][0][0])
-                acc += np.int32(input[i][j][k+1][l]) * np.int32(self.filter[i][0][1][0])
-                acc += np.int32(input[i][j][k+2][l]) * np.int32(self.filter[i][0][2][0])
-                acc += np.int32(input[i][j+1][k][l]) * np.int32(self.filter[i][1][0][0])
-                acc += np.int32(input[i][j+1][k+1][l]) * np.int32(self.filter[i][1][1][0])
-                acc += np.int32(input[i][j+1][k+2][l]) * np.int32(self.filter[i][1][2][0])
-                acc += np.int32(input[i][j+2][k][l]) * np.int32(self.filter[i][2][0][0])
-                acc += np.int32(input[i][j+2][k+1][l]) * np.int32(self.filter[i][2][1][0])
-                acc += np.int32(input[i][j+2][k+2][l]) * np.int32(self.filter[i][2][2][0])
-            case _:
-                # TODO check with more than one filters
-                # FIXME The same of the moment
-                acc += np.int32(input[i][j][k][l]) * np.int32(self.filter[i][0][0][0])
-                acc += np.int32(input[i][j][k+1][l]) * np.int32(self.filter[i][0][1][0])
-                acc += np.int32(input[i][j][k+2][l]) * np.int32(self.filter[i][0][2][0])
-                acc += np.int32(input[i][j+1][k][l]) * np.int32(self.filter[i][1][0][0])
-                acc += np.int32(input[i][j+1][k+1][l]) * np.int32(self.filter[i][1][1][0])
-                acc += np.int32(input[i][j+1][k+2][l]) * np.int32(self.filter[i][1][2][0])
-                acc += np.int32(input[i][j+2][k][l]) * np.int32(self.filter[i][2][0][0])
-                acc += np.int32(input[i][j+2][k+1][l]) * np.int32(self.filter[i][2][1][0])
-                acc += np.int32(input[i][j+2][k+2][l]) * np.int32(self.filter[i][2][2][0])
-        return acc
 
     def conv_by_filter(self, input: np.ndarray, filter: np.ndarray, ch_idx: int, fixed_point: dict, output_zero_point: np.int8, feature_map: np.ndarray) -> np.ndarray:
         out_height = input.shape[1] - filter.shape[1] + 1
@@ -216,8 +218,8 @@ class Conv2D(Layer):
         np.set_printoptions(linewidth=np.inf, threshold=np.inf)
         f1 = feature_map[0,:,:,0]
         f2 = feature_map[0,:,:,1]
-        # print(f1)
-        # print(f2)
+        print(f1)
+        print(f2)
         np.set_printoptions(linewidth=line_width, threshold=threshold)
         # print(self.code)
         return feature_map
@@ -250,31 +252,56 @@ class Conv2D(Layer):
         code += f"    const int8_t input_zero_point = {self.input_zero_point};\n"
         code += f"    const int8_t filter_zero_point = {self.filter_zero_point};\n"
         code += f"    const int8_t bias_zero_point = {self.bias_zero_point};\n"
-        code += f"    const int32_t q_mantissa = {self.q_mantissa};\n"
-        code += f"    const int32_t exponent = {self.exponent};\n"
-        code += f"    for(int i = 0; i < {self.output_shape[0]}; i++)" + "{\n"
-        code += f"        for(int j = 0; j < {self.output_shape[1]}; j++)" + "{\n"
-        code += f"            for(int k = 0; k < {self.output_shape[2]}; k++)" + "{\n"
-        code += f"                for(int l = 0; l < {self.output_shape[3]}; l++)" + "{\n"
-        code += f"                    int32_t acc = 0;\n"
-        code += f"                    for(int m = 0; m < {self.filter.shape[1]}; m++)" + "{\n"
-        code += f"                        for(int n = 0; n < {self.filter.shape[2]}; n++)" + "{\n"
-        code += f"                            for(int o = 0; o < {self.filter.shape[3]}; o++)" + "{\n"
-        code += f"                                acc += input[i][m + j][n + k][o] * filter[i][m][n][o];\n"
-        code += "                            }\n"
-        code += "                         }\n"
-        code += "                     }\n"
-        code += f"                    acc += bias[i];\n"
-        code += f"                    acc = multiply_by_quantize_mul(acc, q_mantissa, exponent);\n"
-        code += f"                    acc += output_zero_point;\n"
-        code += f"                    acc = acc > 127 ? 127 : acc;\n"
-        code += f"                    acc = acc < -128 ? -128 : acc;\n"
-        code += f"                    output[i][j][k][l] = acc;\n"
-        code += "                }\n"
+        code += f"    const int32_t fixed_points[{self.filter.shape[3]}][2] = " + "{\n"
+        for i in range(self.output_shape[3]):
+            code += f"        {{ {self.fixed_points[i]['mantissa']}, {self.fixed_points[i]['exponent']} }},\n"
+        code += "    };\n"
+        code += f"    for(int cout = 0; cout < {self.output_shape[3]}; cout++)" + "{\n"
+        code += f"        for(int out_h = 0; out_h < {self.output_shape[1]}; out_h++)" + "{\n"
+        code += f"            for(int out_w = 0; out_w < {self.output_shape[2]}; out_w++)" + "{\n"
+        code += f"                int32_t acc = 0;\n"
+        code += f"                for(int f_h = 0; f_h < {self.filter.shape[1]}; f_h++)" + "{\n"
+        code += f"                    for(int f_w = 0; f_w < {self.filter.shape[2]}; f_w++)" + "{\n"
+        code += f"                        for(int f_d = 0; f_d < {self.filter.shape[3]}; f_d++)" + "{\n"
+        code += f"                            acc += input[0][out_h + f_h][out_w + f_w][f_d] * filter[cout][f_h][f_w][f_d];\n"
+        code += "                        }\n"
+        code += "                    }\n"
+        code += "                 }\n"
+        code += f"                acc += bias[cout];\n"
+        code += f"                acc = multiply_by_quantize_mul(acc, fixed_points[cout][0], fixed_points[cout][1]);\n"
+        code += f"                acc += output_zero_point;\n"
+        code += f"                acc = acc > 127 ? 127 : acc;\n"
+        code += f"                acc = acc < -128 ? -128 : acc;\n"
+        code += f"                output[0][out_h][out_w][cout] = acc;\n"
         code += "            }\n"
         code += "        }\n"
         code += "    }\n"
         code += "}\n"
+        # code += f"    const int32_t q_mantissa = {self.q_mantissa};\n"
+        # code += f"    const int32_t exponent = {self.exponent};\n"
+        # code += f"    for(int i = 0; i < {self.output_shape[0]}; i++)" + "{\n"
+        # code += f"        for(int j = 0; j < {self.output_shape[1]}; j++)" + "{\n"
+        # code += f"            for(int k = 0; k < {self.output_shape[2]}; k++)" + "{\n"
+        # code += f"                for(int l = 0; l < {self.output_shape[3]}; l++)" + "{\n"
+        # code += f"                    int32_t acc = 0;\n"
+        # code += f"                    for(int m = 0; m < {self.filter.shape[1]}; m++)" + "{\n"
+        # code += f"                        for(int n = 0; n < {self.filter.shape[2]}; n++)" + "{\n"
+        # code += f"                            for(int o = 0; o < {self.filter.shape[3]}; o++)" + "{\n"
+        # code += f"                                acc += input[i][m + j][n + k][o] * filter[i][m][n][o];\n"
+        # code += "                            }\n"
+        # code += "                         }\n"
+        # code += "                     }\n"
+        # code += f"                    acc += bias[i];\n"
+        # code += f"                    acc = multiply_by_quantize_mul(acc, q_mantissa, exponent);\n"
+        # code += f"                    acc += output_zero_point;\n"
+        # code += f"                    acc = acc > 127 ? 127 : acc;\n"
+        # code += f"                    acc = acc < -128 ? -128 : acc;\n"
+        # code += f"                    output[i][j][k][l] = acc;\n"
+        # code += "                }\n"
+        # code += "            }\n"
+        # code += "        }\n"
+        # code += "    }\n"
+        # code += "}\n"
         return code
 
     def generate_opt_code(self):
@@ -388,6 +415,9 @@ class Reshape(Layer):
     
     def apply_layer(self, input: np.ndarray) -> np.ndarray:
         return self.reshape(input)
+    
+    def generate_code(self):
+        return super().generate_code()
 
 class FullyConnected(Layer):
     def __init__(self, input_shape: tuple, output_shape: tuple) -> None:
@@ -523,7 +553,7 @@ for layer in extracted["layers"]:
         maxpool2d = MaxPool2D(layer["input_shape"], layer["output_shape"])
         layers.append(maxpool2d)
     elif layer["type"] == "QUANTIZE":
-        quantize = Quantize(np.int8(-128), layer["s_input"])
+        quantize = Quantize(layer["input_shape"], Z_input=np.int8(-128), S_input=layer["s_input"])
         layers.append(quantize)
     elif layer["type"] == "RESHAPE":
         reshape = Reshape(layer["input_shape"], layer["output_shape"])
@@ -580,10 +610,16 @@ def check_image(model: list[Layer], x_test: np.ndarray, y_test: np.ndarray, inde
 
 
 
-check_image(layers, x_test, y_test, 0)
+check_image(layers, x_test, y_test, 8)
 # predict(layers, x_test[:10], y_test[:10])
 # evaluate(layers, x_test, y_test)
 
-# print(layers[1].generate_code())
-print(layers[1].generate_opt_code())
-# print(layers[4].generate_opt_dot())
+# code = ""
+# code += "#include <stdint.h>\n"
+# code += "#include <stdio.h>\n"
+# code += "#include <stdlib.h>\n"
+# for layer in layers:
+#     code += layer.generate_code()
+#     code += "\n"
+# with open("test_generated/src/model.c", "w") as f:
+#     f.write(code)

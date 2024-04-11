@@ -12,3 +12,7 @@ tflite_visualize.py
 *.h
 *.s
 *.o
+# Ignore some of generated files
+!test_generated/**
+test_generated/objs
+test_generated/a.out
