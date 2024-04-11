@@ -74,19 +74,20 @@ class Quantize(Layer):
         return self.quantize(array)
     
     def generate_code(self):
-        input_dim = 0
+        input_dim = 1
         for shape in self.input_shape:
-            input_dim += shape
-        code = "typedef union byte {\n"
-        code += f"    uint8_t u8[{input_dim}];\n"
-        code += f"    int8_t i8[{input_dim}];\n"
-        code += "} byte_t;\n\n"
-        code += "void quantize(byte_t* image)" + "{\n"
+            input_dim *= shape
+        # TODO Generate Header files
+        # code = "typedef union byte {\n"
+        # code += f"    uint8_t u8[{input_dim}];\n"
+        # code += f"    int8_t i8[{input_dim}];\n"
+        # code += "} byte_t;\n\n"
+        code = "void quantize(byte_t* image)" + "{\n"
         code += "    for(size_t i = 0; i < 784; i++)" + "{\n"
         code += f"        image->i8[i] = image->u8[i] + ({self.Z_input});\n"
         code += "    }\n"
         code += "}\n\n"
-        code += "int32_t multiply_by_quantize_mul(int64_t acc, int32_t q_mantissa, int32_t exp)" + "{\n"
+        code += "static int32_t multiply_by_quantize_mul(int64_t acc, int32_t q_mantissa, int32_t exp)" + "{\n"
         code += "    const int32_t reduced_mantissa = q_mantissa < 0x7FFF0000 ? ((q_mantissa + (1 << 15)) >> 16) : 0x7FFF;\n"
         code += "    const int64_t total_shifts = 15 - exp;\n"
         code += "    const int64_t round = (int64_t)(1) << (total_shifts - 1);\n"
@@ -96,6 +97,9 @@ class Quantize(Layer):
         code += "    return result;\n"
         code += "}\n"
         return code
+    
+    def generate_opt_code(self):
+        return self.generate_code()
 
 class Conv2D(Layer):
     def __init__(self, input_shape: tuple, output_shape: tuple):
@@ -132,6 +136,7 @@ class Conv2D(Layer):
         # Code generation
         self.opt_conv_code = ""
         self.opt_conv_code += f"int32_t apply_filter_{ch_idx}(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int out_h, int out_w, int ch_idx) " + "{\n"
+        self.opt_conv_code += f"    int32_t acc = 0;\n"
         # self.opt_conv_code = f"int32_t apply_filter_{ch_idx}(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int ch_idx, int8_t feature_map[{self.output_shape[0]}][{self.output_shape[1]}][{self.output_shape[2]}][{self.output_shape[3]}]) " + "{\n"
         # self.opt_conv_code += f"    for(int out_h = 0; out_h < {out_height}; out_h++)" + "{\n"
         # self.opt_conv_code += f"        for(int out_w = 0; out_w < {out_width}; out_w++)" + "{\n"
@@ -253,7 +258,7 @@ class Conv2D(Layer):
         code += f"    const int8_t filter_zero_point = {self.filter_zero_point};\n"
         code += f"    const int8_t bias_zero_point = {self.bias_zero_point};\n"
         code += f"    const int32_t fixed_points[{self.filter.shape[3]}][2] = " + "{\n"
-        for i in range(self.output_shape[3]):
+        for i in range(self.output_shape[0]):
             code += f"        {{ {self.fixed_points[i]['mantissa']}, {self.fixed_points[i]['exponent']} }},\n"
         code += "    };\n"
         code += f"    for(int cout = 0; cout < {self.output_shape[3]}; cout++)" + "{\n"
@@ -277,31 +282,6 @@ class Conv2D(Layer):
         code += "        }\n"
         code += "    }\n"
         code += "}\n"
-        # code += f"    const int32_t q_mantissa = {self.q_mantissa};\n"
-        # code += f"    const int32_t exponent = {self.exponent};\n"
-        # code += f"    for(int i = 0; i < {self.output_shape[0]}; i++)" + "{\n"
-        # code += f"        for(int j = 0; j < {self.output_shape[1]}; j++)" + "{\n"
-        # code += f"            for(int k = 0; k < {self.output_shape[2]}; k++)" + "{\n"
-        # code += f"                for(int l = 0; l < {self.output_shape[3]}; l++)" + "{\n"
-        # code += f"                    int32_t acc = 0;\n"
-        # code += f"                    for(int m = 0; m < {self.filter.shape[1]}; m++)" + "{\n"
-        # code += f"                        for(int n = 0; n < {self.filter.shape[2]}; n++)" + "{\n"
-        # code += f"                            for(int o = 0; o < {self.filter.shape[3]}; o++)" + "{\n"
-        # code += f"                                acc += input[i][m + j][n + k][o] * filter[i][m][n][o];\n"
-        # code += "                            }\n"
-        # code += "                         }\n"
-        # code += "                     }\n"
-        # code += f"                    acc += bias[i];\n"
-        # code += f"                    acc = multiply_by_quantize_mul(acc, q_mantissa, exponent);\n"
-        # code += f"                    acc += output_zero_point;\n"
-        # code += f"                    acc = acc > 127 ? 127 : acc;\n"
-        # code += f"                    acc = acc < -128 ? -128 : acc;\n"
-        # code += f"                    output[i][j][k][l] = acc;\n"
-        # code += "                }\n"
-        # code += "            }\n"
-        # code += "        }\n"
-        # code += "    }\n"
-        # code += "}\n"
         return code
 
     def generate_opt_code(self):
@@ -328,8 +308,8 @@ class Conv2D(Layer):
         code += f"    const int8_t input_zero_point = {self.input_zero_point};\n"
         code += f"    const int8_t filter_zero_point = {self.filter_zero_point};\n"
         code += f"    const int8_t bias_zero_point = {self.bias_zero_point};\n"
-        code += f"    const int32_t fixed_points = " + "{\n"
-        for i in range(self.output_shape[3]):
+        code += f"    const int32_t fixed_points[{self.filter.shape[3]}][2] = " + "{\n"
+        for i in range(self.output_shape[0]):
             code += f"        {{ {self.fixed_points[i]['mantissa']}, {self.fixed_points[i]['exponent']} }},\n"
         code += "    };\n"
         # code += f"    const int32_t q_mantissa = {self.q_mantissa};\n"
@@ -394,6 +374,9 @@ class MaxPool2D(Layer):
         code += "    }\n"
         code += "}\n"
         return code
+
+    def generate_opt_code(self):
+        return self.generate_code()
 
 class Reshape(Layer):
     def __init__(self, input_shape: tuple, output_shape: tuple) -> None:
@@ -463,8 +446,8 @@ class FullyConnected(Layer):
     def apply_layer(self, input: np.ndarray) -> np.ndarray:
         return self.fully_connected(input)
     
-    def generate_code(self):
-        code = self.generate_dot()
+    def generate_code(self, opt: bool = False):
+        code = self.generate_dot() if opt == False else self.generate_opt_dot()
         code += f"void fully_connected(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}], int8_t output[{self.output_shape[1]}])" + "{\n"
         code += f"    const int8_t weights[{self.weights.shape[0]}][{self.weights.shape[1]}] = " + "{\n"
         for i in range(self.weights.shape[0]):
@@ -484,7 +467,10 @@ class FullyConnected(Layer):
         code += f"    const int32_t q_mantissa = {self.q_mantissa};\n"
         code += f"    const int32_t exponent = {self.exponent};\n"
         code += f"    int32_t dot_result[{self.output_shape[1]}] = {{0}};\n"
-        code += f"    dot_product(input, weights, dot_result);\n"
+        if opt == False:
+            code += f"    dot_product(input, weights, dot_result);\n"
+        else:
+            code += f"    dot_product(input, dot_result);\n"
         code += f"    for(int i = 0; i < {self.output_shape[1]}; i++)" + "{\n"
         code += f"        dot_result[i] = dot_result[i] + bias[i];\n"
         code += f"        dot_result[i] = multiply_by_quantize_mul(dot_result[i], q_mantissa, exponent);\n"
@@ -498,7 +484,7 @@ class FullyConnected(Layer):
     
     def generate_dot(self):
         code = ""
-        code += f"void dot_product(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}], const int8_t weights[{self.weights.shape[0]}][{self.weights.shape[1]}], int32_t dot_result[{self.weights.shape[0]}])" + "{\n"
+        code += f"static void dot_product(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}], const int8_t weights[{self.weights.shape[0]}][{self.weights.shape[1]}], int32_t dot_result[{self.weights.shape[0]}])" + "{\n"
         code += f"    for(int i = 0; i < {self.output_shape[0]}; i++)" + "{\n"
         code += f"        for(int j = 0; j < {self.weights.shape[0]}; j++)" + "{\n"
         code += f"            for(int k = 0; k < {self.weights.shape[1]}; k++)" + "{\n"
@@ -511,22 +497,23 @@ class FullyConnected(Layer):
     
     def generate_opt_dot(self):
         code = ""
-        code += f"int32_t dot_product(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}], int32_t out[{self.output_shape[1]}])" + "{\n"
+        code += f"static void dot_product(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}], int32_t out[{self.output_shape[1]}])" + "{\n"
         for i in range(self.weights.shape[0]):
             code += f"    out[{i}] = 0;\n"
             for j in range(self.weights.shape[1]):
                 if(self.weights[i][j] == 0):
                     continue
                 elif(self.weights[i][j] == 1):
-                    code += f"    out[{i}] += input[{j}];\n"
+                    code += f"    out[{i}] += input[0][{j}];\n"
                 elif(self.weights[i][j] < 0):
-                    code += f"    out[{i}] += multiply_n{abs(self.weights[i][j])}(input[{j}]);\n"
+                    code += f"    out[{i}] += multiply_n{abs(self.weights[i][j])}(input[0][{j}]);\n"
                 else:
-                    code += f"    out[{i}] += multiply_{self.weights[i][j]}(input[{j}]);\n"
+                    code += f"    out[{i}] += multiply_{self.weights[i][j]}(input[0][{j}]);\n"
         code += "}\n"
         return code
     
-    
+    def generate_opt_code(self):
+        return self.generate_code(opt=True)
 
 
 # Load the data JSON
@@ -618,8 +605,9 @@ check_image(layers, x_test, y_test, 8)
 # code += "#include <stdint.h>\n"
 # code += "#include <stdio.h>\n"
 # code += "#include <stdlib.h>\n"
-# for layer in layers:
-#     code += layer.generate_code()
-#     code += "\n"
-# with open("test_generated/src/model.c", "w") as f:
-#     f.write(code)
+code = ""
+for layer in layers:
+    code += layer.generate_opt_code()
+    code += "\n"
+with open("test_generated/src/model_opt.c", "w") as f:
+    f.write(code)
