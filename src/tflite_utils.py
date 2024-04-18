@@ -143,7 +143,7 @@ class TFLiteUtils:
             #     print("Tensor data is null")
         out = interpreter.get_tensor(interpreter.get_output_details()[0]["index"])
         logging.warn("output tensor: {}".format(out))
-        logging.warn("predicted {} - real {}".format(np.argmax(out), np.argmax(y_test[8])))
+        logging.warn("predicted {} - real {}".format(np.argmax(out), np.argmax(y_test[idx])))
 
     def save_tensor(self, interpreter: tf.lite.Interpreter, tensor_idx: int, name: str):
         try:
