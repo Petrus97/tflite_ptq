@@ -33,4 +33,4 @@ netron:
 
 ## Clean up generated files
 clean:
-	rm -rf $(MODELS_DIR)/*
+	@echo "Cleaning up nothing for now"
