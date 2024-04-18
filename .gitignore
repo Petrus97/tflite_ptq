@@ -7,6 +7,7 @@ __pycache__
 *.npy
 *.json
 tflite_visualize.py
+*.html
 *.dat
 *.c
 *.h
