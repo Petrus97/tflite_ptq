@@ -4,8 +4,8 @@ SHELL = /bin/sh
 # Compiler options (https://www.gnu.org/software/make/manual/html_node/Implicit-Variables.html)
 #
 CC=gcc
-CFLAGS=-g -Wall -Werror -Wpedantic --save-temps -fverbose-asm -O0
-LDLIBS=-lm
+CFLAGS= -Wall -Werror -Wpedantic --save-temps -fverbose-asm -O3
+LDLIBS=
 LDFLAGS=
 
 #

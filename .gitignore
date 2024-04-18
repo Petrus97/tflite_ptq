@@ -17,3 +17,4 @@ tflite_visualize.py
 !test_generated/**
 test_generated/objs
 test_generated/a.out*
+test_generated/msp430.out*
