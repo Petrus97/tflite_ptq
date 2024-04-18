@@ -102,7 +102,10 @@ class Quantize(Layer):
         return self.generate_code()
 
 class Conv2D(Layer):
+    n_layers = 0
     def __init__(self, input_shape: tuple, output_shape: tuple):
+        self.id = Conv2D.n_layers
+        Conv2D.n_layers += 1
         self.input_shape = input_shape
         self.output_shape = output_shape
         self.code = ""
@@ -135,7 +138,7 @@ class Conv2D(Layer):
         filter_depth = filter.shape[3]
         # Code generation
         self.opt_conv_code = ""
-        self.opt_conv_code += f"static int32_t apply_filter_{ch_idx}(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int out_h, int out_w, int ch_idx) " + "{\n"
+        self.opt_conv_code += f"static int32_t apply_filter_{ch_idx}_convlayer{self.id}(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int out_h, int out_w, int ch_idx) " + "{\n"
         self.opt_conv_code += f"    int32_t acc = 0;\n"
         # self.opt_conv_code = f"int32_t apply_filter_{ch_idx}(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int ch_idx, int8_t feature_map[{self.output_shape[0]}][{self.output_shape[1]}][{self.output_shape[2]}][{self.output_shape[3]}]) " + "{\n"
         # self.opt_conv_code += f"    for(int out_h = 0; out_h < {out_height}; out_h++)" + "{\n"
@@ -235,7 +238,7 @@ class Conv2D(Layer):
     def generate_code(self):
         '''Generate C code for the convolution layer'''
         code = ""
-        code += f"void conv2d(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int8_t output[{self.output_shape[0]}][{self.output_shape[1]}][{self.output_shape[2]}][{self.output_shape[3]}])" + "{\n"
+        code += f"void conv2d_{self.id}(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int8_t output[{self.output_shape[0]}][{self.output_shape[1]}][{self.output_shape[2]}][{self.output_shape[3]}])" + "{\n"
         code += f"    int8_t filter[{self.filter.shape[0]}][{self.filter.shape[1]}][{self.filter.shape[2]}][{self.filter.shape[3]}] = " + "{\n"
         for i in range(self.filter.shape[0]):
             code += "        {"
@@ -286,7 +289,7 @@ class Conv2D(Layer):
 
     def generate_opt_code(self):
         code = self.code
-        code += f"void conv2d(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int8_t output[{self.output_shape[0]}][{self.output_shape[1]}][{self.output_shape[2]}][{self.output_shape[3]}])" + "{\n"
+        code += f"void conv2d_{self.id}(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int8_t output[{self.output_shape[0]}][{self.output_shape[1]}][{self.output_shape[2]}][{self.output_shape[3]}])" + "{\n"
         code += f"    int8_t filter[{self.filter.shape[0]}][{self.filter.shape[1]}][{self.filter.shape[2]}][{self.filter.shape[3]}] = " + "{\n"
         for i in range(self.filter.shape[0]):
             code += "        {"
@@ -317,7 +320,7 @@ class Conv2D(Layer):
         for i in range(self.output_shape[3]):
             code += f"    for(int out_h = 0; out_h < {self.output_shape[1]}; out_h++)" + "{\n"
             code += f"        for(int out_w = 0; out_w < {self.output_shape[2]}; out_w++)" + "{\n"
-            code += f"            int32_t acc = apply_filter_{i}(input, out_h, out_w, {i});\n"
+            code += f"            int32_t acc = apply_filter_{i}_convlayer{self.id}(input, out_h, out_w, {i});\n"
             code += f"            acc += bias[{i}];\n"
             code += f"            acc = multiply_by_quantize_mul(acc, fixed_points[{i}][0], fixed_points[{i}][1]);\n"
             code += f"            acc += output_zero_point;\n"
@@ -331,7 +334,10 @@ class Conv2D(Layer):
 
 
 class MaxPool2D(Layer):
+    n_layers = 0
     def __init__(self, input_shape: tuple, output_shape: tuple) -> None:
+        self.id = MaxPool2D.n_layers
+        MaxPool2D.n_layers += 1
         self.input_shape = input_shape
         self.output_shape = output_shape
 
@@ -358,7 +364,7 @@ class MaxPool2D(Layer):
     def generate_code(self):
         '''Generate C code for the max pooling layer'''
         code = ""
-        code += f"void max_pool2d(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int8_t output[{self.output_shape[0]}][{self.output_shape[1]}][{self.output_shape[2]}][{self.output_shape[3]}])" + "{\n"
+        code += f"void max_pool2d_{self.id}(int8_t input[{self.input_shape[0]}][{self.input_shape[1]}][{self.input_shape[2]}][{self.input_shape[3]}], int8_t output[{self.output_shape[0]}][{self.output_shape[1]}][{self.output_shape[2]}][{self.output_shape[3]}])" + "{\n"
         code += f"    for(int i = 0; i < {self.output_shape[0]}; i++)" + "{\n"
         code += f"        for(int j = 0; j < {self.output_shape[1]}; j++)" + "{\n"
         code += f"            for(int k = 0; k < {self.output_shape[2]}; k++)" + "{\n"
@@ -580,9 +586,9 @@ class Model:
         self.header += "} byte_t;\n\n"
         for layer in self.layers:
                 if isinstance(layer, Conv2D):
-                    self.header += f"void conv2d(int8_t input[{layer.input_shape[0]}][{layer.input_shape[1]}][{layer.input_shape[2]}][{layer.input_shape[3]}], int8_t output[{layer.output_shape[0]}][{layer.output_shape[1]}][{layer.output_shape[2]}][{layer.output_shape[3]}]);\n"
+                    self.header += f"void conv2d_{layer.id}(int8_t input[{layer.input_shape[0]}][{layer.input_shape[1]}][{layer.input_shape[2]}][{layer.input_shape[3]}], int8_t output[{layer.output_shape[0]}][{layer.output_shape[1]}][{layer.output_shape[2]}][{layer.output_shape[3]}]);\n"
                 elif isinstance(layer, MaxPool2D):
-                    self.header += f"void max_pool2d(int8_t input[{layer.input_shape[0]}][{layer.input_shape[1]}][{layer.input_shape[2]}][{layer.input_shape[3]}], int8_t output[{layer.output_shape[0]}][{layer.output_shape[1]}][{layer.output_shape[2]}][{layer.output_shape[3]}]);\n"
+                    self.header += f"void max_pool2d_{layer.id}(int8_t input[{layer.input_shape[0]}][{layer.input_shape[1]}][{layer.input_shape[2]}][{layer.input_shape[3]}], int8_t output[{layer.output_shape[0]}][{layer.output_shape[1]}][{layer.output_shape[2]}][{layer.output_shape[3]}]);\n"
                 elif isinstance(layer, Quantize):
                     self.header += "void quantize(byte_t* image);\n"
                 elif isinstance(layer, FullyConnected):
