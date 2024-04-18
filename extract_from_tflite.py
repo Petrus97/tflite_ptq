@@ -71,7 +71,7 @@ def get_tensor(model: tflite.Model, tensor: tflite.Tensor) -> np.ndarray:
     # else:
     # print(model.Buffers(tensor.Buffer()).DataAsNumpy().reshape(tensor.ShapeAsNumpy()).astype(data_type))
     data = data.view(dtype=data_type).reshape(tensor.ShapeAsNumpy())
-    print(data)
+    # print(data)
     return data
 
 
@@ -325,24 +325,24 @@ def import_model(model_name: str = "int_model.tflite"):
                 layer_json["type"] = op_name
                 exported = export_fully_connected(op, tensors, model)
                 layer_json.update(exported)
-                json_ser["layers"].insert(op.OpcodeIndex(), layer_json)
+                json_ser["layers"].insert(i, layer_json)
                 layer += 1
             elif op_name == "CONV_2D":
                 layer_json["type"] = op_name
                 exported = export_conv2d(op, tensors, model)
                 layer_json.update(exported)
-                json_ser["layers"].insert(op.OpcodeIndex(), layer_json)
+                json_ser["layers"].insert(i, layer_json)
                 layer += 1
             else:
                 layer_json["type"] = op_name
                 metadata = add_shapes(op, tensors)
                 layer_json.update(metadata)
-                json_ser["layers"].insert(op.OpcodeIndex(), layer_json)
+                json_ser["layers"].insert(i, layer_json)
                 layer += 1
         with open("extracted.json", "w") as f:
             f.write(json.dumps(json_ser, indent=4))
 
 
 if __name__ == "__main__":
-    import_model(model_name="int_cnn2_conv_model.tflite")
+    import_model(model_name="int_cnntest_model.tflite")
     # import_model()
