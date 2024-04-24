@@ -27,9 +27,9 @@ endif
 
 
 ifdef OPT
-BIN = msp430.out.opt
+BIN = msp430.opt.elf
 else
-BIN = msp430.out
+BIN = msp430.elf
 endif
 
 MCU=msp430f5529
