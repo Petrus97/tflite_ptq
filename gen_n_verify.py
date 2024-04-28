@@ -271,7 +271,7 @@ class Conv2D(Layer):
         code += f"                for(int f_h = 0; f_h < {self.filter.shape[1]}; f_h++)" + "{\n"
         code += f"                    for(int f_w = 0; f_w < {self.filter.shape[2]}; f_w++)" + "{\n"
         code += f"                        for(int f_d = 0; f_d < {self.filter.shape[3]}; f_d++)" + "{\n"
-        code += f"                            acc += input[0][out_h + f_h][out_w + f_w][f_d] * filter[cout][f_h][f_w][f_d];\n"
+        code += f"                            acc += (int32_t)input[0][out_h + f_h][out_w + f_w][f_d] * (int32_t)filter[cout][f_h][f_w][f_d];\n"
         code += "                        }\n"
         code += "                    }\n"
         code += "                 }\n"
@@ -575,7 +575,6 @@ class Model:
         else:
             self.header = "#ifndef MODEL_OPT_H\n#define MODEL_OPT_H\n"
         self.header += "#include <stdint.h>\n"
-        self.header += "#include <stdio.h>\n"
         self.header += "#include <stdlib.h>\n\n"
         self.header += "typedef union byte {\n"
         for layer in self.layers:
@@ -614,7 +613,7 @@ class Model:
     def generate_opt_code(self):
         self.generate_header(opt=True)
         self.source = "#include \"model_opt.h\"\n"
-        self.source += "#include \"multiply.h\"\n\n"
+        self.source += "#include \"multiply_inlined.h\"\n\n"
         for layer in self.layers:
             self.source += layer.generate_opt_code()
             self.source += "\n"
@@ -727,5 +726,5 @@ def check_image(model: list[Layer], x_test: np.ndarray, y_test: np.ndarray, inde
 # with open("test_generated/src/model_opt.c", "w") as f:
 #    f.write(code)
 model.check_image(x_test, y_test, 8) # Needed to generate filter code
-model.generate_code()
-model.generate_opt_code()
+# model.generate_code()
+# model.generate_opt_code()

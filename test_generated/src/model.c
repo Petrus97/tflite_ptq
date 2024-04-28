@@ -41,7 +41,7 @@ void conv2d_0(int8_t input[1][28][28][1], int8_t output[1][26][26][4]){
                 for(int f_h = 0; f_h < 3; f_h++){
                     for(int f_w = 0; f_w < 3; f_w++){
                         for(int f_d = 0; f_d < 1; f_d++){
-                            acc += input[0][out_h + f_h][out_w + f_w][f_d] * filter[cout][f_h][f_w][f_d];
+                            acc += (int32_t)input[0][out_h + f_h][out_w + f_w][f_d] * (int32_t)filter[cout][f_h][f_w][f_d];
                         }
                     }
                  }
@@ -93,7 +93,7 @@ void conv2d_1(int8_t input[1][13][13][4], int8_t output[1][12][12][2]){
                 for(int f_h = 0; f_h < 2; f_h++){
                     for(int f_w = 0; f_w < 2; f_w++){
                         for(int f_d = 0; f_d < 4; f_d++){
-                            acc += input[0][out_h + f_h][out_w + f_w][f_d] * filter[cout][f_h][f_w][f_d];
+                            acc += (int32_t)input[0][out_h + f_h][out_w + f_w][f_d] * (int32_t)filter[cout][f_h][f_w][f_d];
                         }
                     }
                  }

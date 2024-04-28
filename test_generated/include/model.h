@@ -1,7 +1,6 @@
 #ifndef MODEL_H
 #define MODEL_H
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 typedef union byte {

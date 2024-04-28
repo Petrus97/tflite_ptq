@@ -4,7 +4,8 @@ SHELL = /bin/sh
 # Compiler options (https://www.gnu.org/software/make/manual/html_node/Implicit-Variables.html)
 #
 CC=gcc
-CFLAGS= -Wall -Werror -Wpedantic --save-temps -fverbose-asm -O3
+OBJDUMP=objdump
+CFLAGS= -Wall -Werror -Wpedantic --save-temps -fverbose-asm -O3 -g
 LDLIBS=
 LDFLAGS=
 
@@ -41,7 +42,7 @@ CFLAGS += -DDEBUG=1 -Wno-unused-variable
 #
 # Compile the binary
 #
-all: prebuild $(BIN)
+all: prebuild $(BIN) dump
 
 $(BIN): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ -I$(INC_DIR) $(LDLIBS)
@@ -49,6 +50,8 @@ $(BIN): $(OBJS)
 $(OBJS): $(OBJ_DIR)/%.o:$(SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@ -I$(INC_DIR)
 
+dump:
+	$(OBJDUMP) -D $(BIN) > $(OBJ_DIR)/$(BIN).s
 
 #
 # Add the operations to do before start the compilation
