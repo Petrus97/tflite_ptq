@@ -6,7 +6,7 @@ target remote :3333
 # break main
 
 # to print the result
-break main.c:77 
+break main.c:70
 # to check how many instructions
 break __stop_program 
 

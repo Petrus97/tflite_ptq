@@ -1,8 +1,9 @@
 SHELL = /bin/sh
 
-CC=/home/ale19/ti/msp430-gcc/bin/msp430-elf-gcc-9.3.1
+CC=msp430-elf-gcc-9.3.1
 CFLAGS=-Wall -Werror -Wpedantic -O3
-READELF=/home/ale19/ti/msp430-gcc/bin/msp430-elf-readelf
+READELF=msp430-elf-readelf
+OBJDUMP=msp430-elf-objdump
 LDLIBS=
 LDFLAGS=
 
@@ -35,7 +36,7 @@ endif
 MCU=msp430f5529
 MCU_SERIES=f5series
 MSPGCC_INC=/home/ale19/ti/msp430-gcc/msp430-elf/include
-MSP430_INC=/home/ale19/ti/ccs1260/ccs/ccs_base/msp430/include_gcc
+MSP430_INC=/home/ale19/ti/msp430-gcc/include
 
 LDFLAGS += -Wl,-Map,$(BIN).map
 LDFLAGS += -Wl,--gc-sections -L$(MSP430_INC)
@@ -51,7 +52,7 @@ CFLAGS += -I$(MSPGCC_INC) -I$(INC_DIR) -I$(MSP430_INC)
 #
 # Compile the binary
 #
-all: prebuild $(BIN)
+all: prebuild $(BIN) dump
 
 $(BIN): $(OBJS)
 # -MMD -MP -MF"multiply.d_raw" -MT"multiply.o"
@@ -60,7 +61,8 @@ $(BIN): $(OBJS)
 $(OBJS): $(OBJ_DIR)/%.o:$(SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
-
+dump:
+	$(OBJDUMP) -D $(BIN) > $(OBJ_DIR)/$(BIN).s
 #
 # Add the operations to do before start the compilation
 #
