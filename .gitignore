@@ -19,5 +19,6 @@ tflite_visualize.py
 test_generated/objs
 test_generated/a.out*
 test_generated/msp430.out*
+test_generated/arm*.elf
 test_generated/*.map
 test_generated/*.txt
