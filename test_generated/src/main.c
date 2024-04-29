@@ -7,7 +7,7 @@
 
 #if defined(__AVR)
 #include <avr/io.h>
-#elif defined(__MSP430__) || defined(__arm__)
+#elif defined(__MSP430__) || defined(__arm__) || defined(__riscv)
 #else
 #include <stdio.h>
 #endif
