@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "tflite_ptq"
+version = "0.1.0"
+description = ""
+authors = ["ale19 <ale.petru97@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+tensorflow = "2.15"
+prettytable = "^3.10.0"
+coloredlogs = "^15.0.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

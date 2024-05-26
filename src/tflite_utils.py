@@ -146,14 +146,15 @@ class TFLiteUtils:
         logging.warn("predicted {} - real {}".format(np.argmax(out), np.argmax(y_test[idx])))
 
     def save_tensor(self, interpreter: tf.lite.Interpreter, tensor_idx: int, name: str):
+        ARRAY_DIR = "numpy_arrays/"
         try:
             array = interpreter.get_tensor(tensor_idx)
-            np.save(name.replace("/", "_"), array)
-            if ("quantize" in name) or ("default" in name):
+            np.save(ARRAY_DIR + name.replace("/", "_"), array)
+            if ("quantize" in name) or ("default" in name): # skip these tensors
                 return
             elif ("conv" in name) or ("max" in name):
                 self.__print_np__(array)
-            elif name == "":
+            elif name == "": # skip these tensors
                 return
             else:
                 print(array)

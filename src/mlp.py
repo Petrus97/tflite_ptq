@@ -1,10 +1,13 @@
 import tensorflow as tf
 
 print(tf.__version__)
-import keras
 import numpy as np
 import pathlib
 import argparse
+
+
+import keras
+from keras.models import Sequential
 
 from keras.layers import Conv2D, MaxPool2D, Dense, Flatten
 from keras.optimizers import SGD
@@ -22,7 +25,7 @@ def create_model() -> Sequential:
         [
             Flatten(input_shape=(28, 28)),
             # Dense(30, activation=tf.nn.relu),
-            Dense(10, activation=tf.nn.softmax)
+            Dense(10, activation="softmax")
         ]
     )
     print(model.summary())
@@ -32,7 +35,7 @@ def create_model() -> Sequential:
 def train(model: Sequential) -> Sequential:
     print("Training...")
     batch_size = 100
-    epochs = 30
+    epochs = 10
     model.compile(
         optimizer=SGD(learning_rate=0.05),
         loss=CategoricalCrossentropy(),
@@ -46,13 +49,13 @@ def train(model: Sequential) -> Sequential:
     return model
 
 
-def evaluate(model: Sequential) -> Sequential:
+def evaluate(model:  Sequential) ->  Sequential:
     logging.info("Evaluating...")
     score = model.evaluate(x=x_test, y=y_test)
     logging.warn(score)
 
 
-def predict(model: Sequential) -> Sequential:
+def predict(model:  Sequential) ->  Sequential:
     logging.info("Showing the first 10 predictions")
     from prettytable import PrettyTable
     table = PrettyTable()
@@ -115,6 +118,7 @@ def main():
         evaluate(model)
         predict(model)
     if args.lite:
+        print(type(model))
         tf_utils = TFLiteUtils(model, args.lite, model_name=NET_TYPE)
         tf_utils.set_dataset(x_train, y_train, x_test, y_test)
         tf_utils.convert_to_tflite()

@@ -3,6 +3,7 @@ mnist_model.tflite
 models/*
 .mypy_cache
 .vscode
+.venv
 __pycache__
 *.npy
 *.json
@@ -23,3 +24,4 @@ test_generated/arm*.elf
 test_generated/riscv*.elf
 test_generated/*.map
 test_generated/*.txt
+poetry.lock
