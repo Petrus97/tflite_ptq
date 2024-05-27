@@ -1,63 +1,32 @@
-# Shell
-SHELL = /bin/sh
-#
-# Compiler options (https://www.gnu.org/software/make/manual/html_node/Implicit-Variables.html)
-#
-CC=gcc
-OBJDUMP=objdump
-CFLAGS= -Wall -Werror -Wpedantic --save-temps -fverbose-asm -O3 -g
-LDLIBS=
-LDFLAGS=
+# Default architecture
+ARCH ?= x86
 
-#
-# Directories
-#
-SRC_DIR=./src
-INC_DIR=./include
-OBJ_DIR=./objs
+OPT = 
 
-#
-# Automatic variables for .c and .o files
-#
-SRCS=$(wildcard $(SRC_DIR)/*.c)
-OBJS=$(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SRCS))
+# Supported architectures
+VALID_ARCHS := msp430 riscv avr arm x86
 
-ifdef OPT
-SRCS := $(filter-out $(SRC_DIR)/model.c, $(SRCS))
+# Check if the specified ARCH is valid
+ifneq ($(filter $(ARCH), $(VALID_ARCHS)),)
+    # Include the architecture-specific Makefile if it exists
+    -include $(ARCH).mk
 else
-SRCS := $(filter-out $(SRC_DIR)/model_opt.c, $(SRCS))
+    $(error Invalid ARCH specified. Valid options are: $(VALID_ARCHS))
 endif
 
+.PHONY: help
 
-ifdef OPT
-BIN = a.out.opt
-else
-BIN = a.out
-endif
+all: help
 
-
-
-CFLAGS += -DDEBUG=1 -Wno-unused-variable
-
-#
-# Compile the binary
-#
-all: prebuild $(BIN) dump
-
-$(BIN): $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ -I$(INC_DIR) $(LDLIBS)
-
-$(OBJS): $(OBJ_DIR)/%.o:$(SRC_DIR)/%.c
-	$(CC) $(CFLAGS) -c $< -o $@ -I$(INC_DIR)
-
-dump:
-	$(OBJDUMP) -D $(BIN) > $(OBJ_DIR)/$(BIN).s
-
-#
-# Add the operations to do before start the compilation
-#
-prebuild:
-	mkdir -p $(OBJ_DIR)
+help:
+    @echo "Available architectures: $(VALID_ARCHS)"
+    @echo "Usage: make ARCH=<architecture> [target]"
+    @echo "Available targets: all, clean, dump, size, help, compiler_macros"
 
 clean:
-	rm -rf $(BIN)* $(OBJ_DIR)/* *.out *.map *.s *.i *.o *.elf
+
+size:
+
+compiler_macros:
+
+dump:
